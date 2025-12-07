@@ -1,0 +1,159 @@
+/* Custom CSS pro Gamma Spektroskopie aplikaci */
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* Header */
+h2 {
+    color: #2c3e50;
+    font-weight: 700;
+}
+
+/* Cards */
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border: none;
+    border-radius: 8px;
+    transition: box-shadow 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.card-header {
+    background-color: #e7f1ff;
+    font-weight: 600;
+    color: #0d6efd;
+    border-bottom: 2px solid #0d6efd;
+}
+
+/* Upload area */
+.upload-area {
+    transition: all 0.3s ease;
+}
+
+.upload-area:hover {
+    background-color: #e9ecef;
+    border-color: #0d6efd !important;
+}
+
+/* Buttons */
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    font-weight: 600;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.btn-primary:disabled {
+    background: #6c757d;
+    opacity: 0.6;
+}
+
+.btn-success {
+    font-weight: 600;
+}
+
+/* Input groups */
+.input-group-text {
+    background-color: #e9ecef;
+    font-weight: 600;
+    border-right: none;
+}
+
+.form-control {
+    border-left: none;
+}
+
+/* Tables */
+.dash-table-container {
+    font-size: 14px;
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td {
+    padding: 8px !important;
+}
+
+/* Plotly graphs */
+.js-plotly-plot {
+    border-radius: 8px;
+}
+
+/* Sliders */
+.rc-slider-track {
+    background-color: #667eea !important;
+}
+
+.rc-slider-handle {
+    border-color: #667eea !important;
+}
+
+.rc-slider-handle:active {
+    box-shadow: 0 0 5px #667eea !important;
+}
+
+/* Alerts */
+.alert {
+    border-radius: 8px;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Loading spinner */
+._dash-loading {
+    margin-top: 50px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Pre element for detailed stats */
+pre {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+
+/* Switch styling */
+.form-switch .form-check-input {
+    cursor: pointer;
+}
+
+.form-switch .form-check-input:checked {
+    background-color: #667eea;
+    border-color: #667eea;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding: 10px;
+    }
+}
