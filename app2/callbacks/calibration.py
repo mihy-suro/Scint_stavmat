@@ -39,9 +39,10 @@ def register_calibration_callbacks(app):
          Input('select-e-1461', 'n_clicks')],
         [State('peak-calibration-data', 'data'),
          State('sample-selector', 'value'),
-         State('excel-data', 'data')]
+         State('excel-data', 'data'),
+         State('current-sample-calib', 'data')]
     )
-    def handle_peak_calibration(click_data, n238, n295, n352, n609, n1461, calib_data, selected_sample, excel_data):
+    def handle_peak_calibration(click_data, n238, n295, n352, n609, n1461, calib_data, selected_sample, excel_data, current_sample_calib):
         """Handle energy selection and graph clicks for manual calibration"""
         if not callback_context.triggered:
             raise PreventUpdate
@@ -56,7 +57,12 @@ def register_calibration_callbacks(app):
         colors = ['light', 'light', 'light', 'light', 'light']
         energy_list = ['238', '295', '352', '609', '1461']
         
-        # Highlight active energy
+        # Mark assigned energies as success (green)
+        for i, e in enumerate(energy_list):
+            if calib_data.get('peaks', {}).get(e, '-') != '-':
+                colors[i] = 'success'
+        
+        # Highlight active energy as primary (blue)
         if calib_data.get('active_energy'):
             idx = energy_list.index(calib_data['active_energy'])
             colors[idx] = 'primary'
@@ -72,30 +78,49 @@ def register_calibration_callbacks(app):
         
         # Handle graph click - assign channel to active energy
         if trigger_id == 'spectrum-plot' and click_data and calib_data.get('active_energy'):
-            # Get channel from clicked point
-            x_value = click_data['points'][0]['x']
+            # Get energy from clicked point (x is always in keV)
+            energy_clicked = click_data['points'][0]['x']
             
-            # If looking at raw spectrum (channels) or fitted (energy), convert accordingly
-            if excel_data and selected_sample and 'parameters' in excel_data:
-                params = excel_data['parameters']
-                ref_a0 = float(params.get('ref_a0', 9.6229))
-                ref_a1 = float(params.get('ref_a1', 1.3793))
-                
-                # Assume x is energy, convert to channel
-                channel = int((x_value - ref_a0) / ref_a1)
+            # Convert energy to channel using current sample calibration
+            if current_sample_calib:
+                calib_coeffs = [
+                    current_sample_calib.get('a0', 9.6229),
+                    current_sample_calib.get('a1', 1.3793),
+                    current_sample_calib.get('a2', 0)
+                ]
+                channel = convert_energy_to_channel(energy_clicked, calib_coeffs)
             else:
-                channel = int(x_value)
+                # Fallback: use default linear conversion
+                channel = int((energy_clicked - 9.6229) / 1.3793)
             
             energy = calib_data['active_energy']
             calib_data['peaks'][energy] = channel
             
-            print(f"✓ {energy} keV → Channel {channel}")
+            print(f"✓ {energy} keV → Channel {channel} (clicked at {energy_clicked:.1f} keV)")
             
-            # Keep energy active, change to green
-            idx = energy_list.index(energy)
-            colors[idx] = 'success'
+            # Mark current energy as success (green)
+            current_idx = energy_list.index(energy)
+            colors[current_idx] = 'success'
+            
+            # Auto-advance to next unassigned energy
+            next_energy_found = False
+            for i, e in enumerate(energy_list):
+                if calib_data['peaks'].get(e, '-') == '-':
+                    # Found next unassigned energy - activate it
+                    calib_data['active_energy'] = e
+                    colors[i] = 'primary'
+                    next_energy_found = True
+                    print(f"→ Auto-switched to {e} keV")
+                    break
+            
+            # If all energies assigned, deactivate
+            if not next_energy_found:
+                calib_data['active_energy'] = None
+                print("✓ All peaks assigned!")
             
             return calib_data, *colors
+        
+        return calib_data, *colors
         
         return calib_data, *colors
     
@@ -168,15 +193,22 @@ def register_calibration_callbacks(app):
                 hovertemplate='CH %{x}<br>%{text}<extra></extra>'
             ))
             
-            # Plot fit line using manual_a0, manual_a1
+            # Plot fit line using current calibration (linear or quadratic)
             ch_range = np.linspace(0, max(channels) * 1.1, 100)
-            e_fit = a0 + a1 * ch_range
+            
+            # Check if quadratic
+            if abs(a2) > 1e-8:  # Quadratic
+                e_fit = a0 + a1 * ch_range + a2 * ch_range**2
+                fit_label = f'Manuální: E = {a0:.2f} + {a1:.4f}·CH + {a2:.6f}·CH²'
+            else:  # Linear
+                e_fit = a0 + a1 * ch_range
+                fit_label = f'Manuální: E = {a0:.2f} + {a1:.4f}·CH'
             
             fig.add_trace(go.Scatter(
                 x=ch_range,
                 y=e_fit,
                 mode='lines',
-                name=f'Manuální: E = {a0:.2f} + {a1:.4f}·CH',
+                name=fit_label,
                 line=dict(color='blue', dash='dash', width=2)
             ))
             

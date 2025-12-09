@@ -13,65 +13,88 @@ def register_visualization_callbacks(app):
         Output('spectrum-plot', 'figure'),
         [Input('sample-results', 'data'),
          Input('sample-selector', 'value'),
-         Input('cut-channel', 'value'),
+         Input('cut-channel-range', 'value'),
          Input('peak-calibration-data', 'data'),
          Input('current-sample-calib', 'data')],
         State('excel-data', 'data')
     )
-    def update_plot(results, selected_sample, cut_channel, calib_data, current_sample_calib, excel_data):
+    def update_plot(results, selected_sample, cut_range, calib_data, current_sample_calib, excel_data):
         """Update spectrum plot - show raw after upload, fitted after analysis"""
+        
+        # Extract left and right cutoffs from range slider
+        cut_left = cut_range[0] if cut_range else 0
+        cut_right = cut_range[1] if cut_range else 2048
         
         print(f"\n=== UPDATE_PLOT CALLED ===")
         print(f"results is None: {results is None}")
         print(f"selected_sample: {selected_sample}")
-        print(f"cut_channel: {cut_channel}")
+        print(f"cut_range: {cut_left}-{cut_right}")
+
         
         # If analysis results available, show them
         if results is not None:
             try:
                 print("Attempting to create fitted spectrum plot...")
                 
-                calib_df = pd.DataFrame(results['calibration'])
+                # Get UNCUT data from results
+                calib_df_uncut = pd.DataFrame(results['calibration'])  # Now uncut
                 ref_calib = results['ref_calib']
-                sample_spectrum = results['sample_spectrum']
+                sample_calib = results['sample_calib']
+                sample_spectrum_uncut = np.array(results['sample_spectrum_uncut'])
+                raw_coeffs = results['raw_coeffs']  # Single method raw coefficients
+                regression_method = results.get('regression_method', 'OLS')
                 
-                # Calculate energies - use range(len) like original script
-                energies = [calculate_energy(ch, ref_calib) for ch in range(len(sample_spectrum))]
+                # Create mask for current cutoff range
+                n_channels = len(sample_spectrum_uncut)
+                channel_indices = np.arange(n_channels)
+                mask = (channel_indices > cut_left) & (channel_indices <= cut_right)
+                
+                # Apply current cutoff to sample spectrum and rebin
+                sample_spectrum_masked = sample_spectrum_uncut.copy()
+                sample_spectrum_masked[~mask] = 0
+                sample_rebinned = rebin_spectrum(ref_calib, sample_calib, sample_spectrum_masked)
+                
+                # Apply current cutoff to calibration spectra
+                calib_df_masked = calib_df_uncut.copy()
+                calib_df_masked.loc[~mask, ["Ra", "K", "Th"]] = 0
+                X_calib = calib_df_masked[['Ra', 'K', 'Th']].values
+                
+                # Build predictor matrix with current cutoff (only Ra, K, Th)
+                X = X_calib
+                component_values = [raw_coeffs['Ra'], raw_coeffs['K'], raw_coeffs['Th']]
+                
+                # Recalculate fitted spectrum with current cutoff
+                fitted_spectrum = X @ np.array(component_values)
+                
+                # Calculate energies
+                energies = [calculate_energy(ch, ref_calib) for ch in range(len(sample_rebinned))]
                 
                 # Create plot
                 fig = go.Figure()
                 
                 # Sample spectrum
+                channels = list(range(len(sample_rebinned)))
                 fig.add_trace(go.Scatter(
                     x=energies,
-                    y=results['sample_spectrum'],
+                    y=sample_rebinned,
                     mode='lines',
                     name='Naměřené',
                     line=dict(color='black', width=2),
+                    customdata=channels,
+                    hovertemplate='Energie: %{x:.2f} keV<br>Kanál: %{customdata}<br>Intenzita: %{y:.2f} CPS<extra></extra>'
                 ))
                 
-                # Fitted spectra
+                # Fitted spectrum (single method)
+                fit_color = 'green' if regression_method == 'OLS' else 'orange'
                 fig.add_trace(go.Scatter(
                     x=energies,
-                    y=results['fitted_ols'],
+                    y=fitted_spectrum,
                     mode='lines',
-                    name='Fit (OLS)',
-                    line=dict(color='green', width=2, dash='dot'),
+                    name=f'Fit ({regression_method})',
+                    line=dict(color=fit_color, width=2, dash='dot'),
+                    customdata=channels,
+                    hovertemplate='Energie: %{x:.2f} keV<br>Kanál: %{customdata}<br>Fit: %{y:.2f} CPS<extra></extra>'
                 ))
-                
-                fig.add_trace(go.Scatter(
-                    x=energies,
-                    y=results['fitted_nnls'],
-                    mode='lines',
-                    name='Fit (NNLS)',
-                    line=dict(color='orange', width=2, dash='dot'),
-                ))
-                
-                # Individual components (Ra, K, Th, BG1, BG2...) from OLS - use RAW coefficients
-                calib_df = pd.DataFrame(results['calibration'])
-                X_calib = calib_df[['Ra', 'K', 'Th']].values
-                raw_coeffs = results['raw_ols_coeffs']
-                bg_names = results['bg_names']
                 
                 # Radioaktivní komponenty
                 fig.add_trace(go.Scatter(
@@ -80,7 +103,9 @@ def register_visualization_callbacks(app):
                     mode='lines',
                     name='Ra-226',
                     line=dict(color='red', width=1, dash='dashdot'),
-                    opacity=0.7
+                    opacity=0.7,
+                    customdata=channels,
+                    hovertemplate='Energie: %{x:.2f} keV<br>Kanál: %{customdata}<br>Ra-226: %{y:.2f} CPS<extra></extra>'
                 ))
                 
                 fig.add_trace(go.Scatter(
@@ -89,7 +114,9 @@ def register_visualization_callbacks(app):
                     mode='lines',
                     name='K-40',
                     line=dict(color='blue', width=1, dash='dashdot'),
-                    opacity=0.7
+                    opacity=0.7,
+                    customdata=channels,
+                    hovertemplate='Energie: %{x:.2f} keV<br>Kanál: %{customdata}<br>K-40: %{y:.2f} CPS<extra></extra>'
                 ))
                 
                 fig.add_trace(go.Scatter(
@@ -98,46 +125,10 @@ def register_visualization_callbacks(app):
                     mode='lines',
                     name='Th-232',
                     line=dict(color='purple', width=1, dash='dashdot'),
-                    opacity=0.7
+                    opacity=0.7,
+                    customdata=channels,
+                    hovertemplate='Energie: %{x:.2f} keV<br>Kanál: %{customdata}<br>Th-232: %{y:.2f} CPS<extra></extra>'
                 ))
-                
-                # Pozadí komponenty (dynamicky podle počtu pozadí)
-                bg_colors = ['dimgray', 'brown', 'olive', 'teal']  # Barvy pro pozadí
-                background_data = results['background']  # Dict of lists
-                
-                print(f"\n=== DEBUG: Background plotting ===")
-                print(f"Type of background_data: {type(background_data)}")
-                print(f"Keys: {list(background_data.keys())}")
-                print(f"bg_names: {bg_names}")
-                
-                for i, bg_name in enumerate(bg_names):
-                    bg_spectrum = background_data[bg_name]  # Should be a list
-                    print(f"\n{bg_name}:")
-                    print(f"  Type: {type(bg_spectrum)}")
-                    print(f"  Length: {len(bg_spectrum) if hasattr(bg_spectrum, '__len__') else 'N/A'}")
-                    print(f"  First 5 values: {bg_spectrum[:5] if isinstance(bg_spectrum, list) else 'NOT A LIST'}")
-                    
-                    bg_coef = raw_coeffs.get(bg_name, 1.0)
-                    print(f"  Coefficient: {bg_coef} (type: {type(bg_coef)})")
-                    
-                    color = bg_colors[i % len(bg_colors)]
-                    
-                    # Multiply spectrum by coefficient
-                    bg_y = np.array(bg_spectrum) * bg_coef
-                    print(f"  bg_y type: {type(bg_y)}")
-                    print(f"  bg_y shape: {bg_y.shape}")
-                    print(f"  bg_y first 5: {bg_y[:5]}")
-                    
-                    fig.add_trace(go.Scatter(
-                        x=energies,
-                        y=bg_y,
-                        mode='lines',
-                        name=f'BG: {bg_name}',
-                        line=dict(color=color, width=1, dash='dashdot'),
-                        opacity=0.6
-                    ))
-                
-                print(f"=== DEBUG END ===\n")
                 
                 fig.update_layout(
                     title=f"Spektrum vzorku: {results['sample_name']}",
@@ -145,22 +136,23 @@ def register_visualization_callbacks(app):
                     yaxis_title="Intenzita (CPS)",
                     hovermode='x unified',
                     template='plotly_white',
-                    legend=dict(x=0.7, y=0.98)
+                    legend=dict(x=0.7, y=0.98),
+                    xaxis=dict(showspikes=True, spikemode='across', spikethickness=1, spikecolor='gray', spikedash='dash'),
+                    hoverdistance=100
                 )
                 
                 # Add green crosses for calibration peaks
                 if calib_data and 'peaks' in calib_data and results:
                     ref_calib = results['ref_calib']
-                    sample_spectrum = results['sample_spectrum']
                     
                     for energy_str, channel in calib_data['peaks'].items():
                         if channel != '-':
-                            # Convert channel to energy using ref_calib
-                            energy_val = ref_calib[0] + ref_calib[1] * channel
+                            # Convert channel to energy using ref_calib (with quadratic term)
+                            energy_val = calculate_energy(channel, ref_calib)
                             
-                            # Find intensity at that channel
-                            if 0 <= channel < len(sample_spectrum):
-                                intensity = sample_spectrum[channel]
+                            # Find intensity at that channel in rebinned spectrum
+                            if 0 <= channel < len(sample_rebinned):
+                                intensity = sample_rebinned[channel]
                                 
                                 fig.add_trace(go.Scatter(
                                     x=[energy_val],
@@ -210,34 +202,40 @@ def register_visualization_callbacks(app):
                 # Normalize to CPS
                 counts = sample_df[selected_sample].values / sample_live_time
                 
-                # Apply cut channel (vynulovat první N kanálů)
-                if cut_channel is not None and cut_channel > 0:
+                # Apply cutoffs (zero out channels outside the selected range)
+                if cut_range is not None:
                     counts = counts.copy()
-                    counts[sample_df['CHNL'] <= cut_channel] = 0
+                    counts[sample_df['CHNL'] <= cut_left] = 0
+                    counts[sample_df['CHNL'] > cut_right] = 0
                 
                 fig = go.Figure()
+                channels = sample_df['CHNL'].values
                 fig.add_trace(go.Scatter(
                     x=energies,
                     y=counts,
                     mode='lines',
                     name='Raw spektrum',
                     line=dict(color='blue', width=1.5),
+                    customdata=channels,
+                    hovertemplate='Energie: %{x:.2f} keV<br>Kanál: %{customdata}<br>Intenzita: %{y:.2f} CPS<extra></extra>'
                 ))
                 
                 fig.update_layout(
-                    title=f"Raw spektrum: {selected_sample} (cut ≤ {cut_channel})",
+                    title=f"Raw spektrum: {selected_sample} (rozsah: {cut_left}-{cut_right})",
                     xaxis_title="Energie (keV)",
                     yaxis_title="Intenzita (CPS)",
                     hovermode='x unified',
-                    template='plotly_white'
+                    template='plotly_white',
+                    xaxis=dict(showspikes=True, spikemode='across', spikethickness=1, spikecolor='gray', spikedash='dash'),
+                    hoverdistance=100
                 )
                 
                 # Add green crosses for calibration peaks
                 if calib_data and 'peaks' in calib_data:
                     for energy_str, channel in calib_data['peaks'].items():
                         if channel != '-':
-                            # Convert channel to energy using sample_calib
-                            energy_val = sample_calib[0] + sample_calib[1] * channel
+                            # Convert channel to energy using sample_calib (with quadratic term)
+                            energy_val = calculate_energy(channel, sample_calib)
                             
                             # Find intensity at that channel
                             ch_idx = sample_df['CHNL'].tolist().index(channel) if channel in sample_df['CHNL'].tolist() else None
@@ -273,3 +271,71 @@ def register_visualization_callbacks(app):
             template='plotly_white'
         )
         return fig
+    
+    
+    # ==================== RESIDUALS PLOT ====================
+    @app.callback(
+        [Output('residuals-plot', 'figure'),
+         Output('residuals-card', 'style')],
+        Input('sample-results', 'data')
+    )
+    def update_residuals_plot(results):
+        """Display residuals after analysis"""
+        
+        if results is None:
+            # Hide card when no results
+            return go.Figure(), {'display': 'none'}
+        
+        try:
+            # Get data from results (use uncut data stored in results)
+            sample_spectrum = np.array(results['sample_spectrum_uncut'])
+            fitted_spectrum = np.array(results['fitted_spectrum'])
+            regression_method = results.get('regression_method', 'OLS')
+            ref_calib = results['ref_calib']
+            cut_range = results.get('cut_range_used', [0, len(sample_spectrum)])
+            
+            # Apply same cutoff as was used in analysis
+            cut_left, cut_right = cut_range
+            mask = np.zeros(len(sample_spectrum), dtype=bool)
+            mask[cut_left:cut_right] = True
+            
+            sample_masked = sample_spectrum[mask]
+            fitted_masked = fitted_spectrum  # Already matches cut range
+            
+            # Calculate residuals
+            residuals = sample_masked - fitted_masked
+            
+            # Calculate energies (only for masked region)
+            energies = [calculate_energy(ch, ref_calib) for ch in range(cut_left, cut_right)]
+            
+            # Create figure
+            fig = go.Figure()
+            
+            # Single method residuals with dynamic color
+            resid_color = 'green' if regression_method == 'OLS' else 'orange'
+            fig.add_trace(go.Scatter(
+                x=energies,
+                y=residuals,
+                mode='lines',
+                name=f'Residua ({regression_method})',
+                line=dict(color=resid_color, width=1.5),
+            ))
+            
+            # Zero line
+            fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+            
+            fig.update_layout(
+                xaxis_title="Energie (keV)",
+                yaxis_title="Residua (CPS)",
+                hovermode='x unified',
+                template='plotly_white',
+                margin=dict(l=50, r=20, t=30, b=40),
+                legend=dict(x=0.7, y=0.98)
+            )
+            
+            # Show card
+            return fig, {'display': 'block'}
+            
+        except Exception as e:
+            print(f"Error in residuals plot: {e}")
+            return go.Figure(), {'display': 'none'}

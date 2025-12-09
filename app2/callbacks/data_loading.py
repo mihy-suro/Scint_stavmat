@@ -1,159 +1,130 @@
 """
-Data loading callbacks - Excel upload and parsing
+Data loading callbacks - YAML config and SPE file loading
 """
 
 from .utils import *
+import yaml
+import os
+from pathlib import Path
 
 
 def register_data_loading_callbacks(app):
     """Register data loading and file upload callbacks"""
     
-    # ==================== EXCEL UPLOAD & PARSING ====================
+    # ==================== LOAD DETECTOR CONFIG ====================
     @app.callback(
         [Output('excel-data', 'data'),
-         Output('run-analysis', 'disabled'),
+         Output('run-analysis', 'disabled', allow_duplicate=True),
          Output('ref-a0', 'value'),
          Output('ref-a1', 'value'),
          Output('ref-a2', 'value'),
          Output('manual-a0', 'value'),
          Output('manual-a1', 'value'),
-         Output('cut-channel', 'value'),
-         Output('status-log', 'children')],
-        [Input('upload-excel', 'contents'),
-         Input('upload-excel', 'filename')]
+         Output('cut-channel-range', 'value'),
+         Output('status-log', 'children', allow_duplicate=True)],
+        Input('detector-selector', 'value'),
+        prevent_initial_call=True
     )
-    def parse_excel(contents, filename):
-        """Parse uploaded Excel file"""
-        if contents is None:
+    def load_detector_config(detector_name):
+        """Load detector configuration from YAML and calibration SPE files"""
+        if detector_name is None:
             raise PreventUpdate
         
         try:
-            # Decode file
-            content_type, content_string = contents.split(',')
-            decoded = base64.b64decode(content_string)
-            excel_file = pd.ExcelFile(io.BytesIO(decoded))
+            # Load YAML configuration
+            config_path = Path(__file__).parent.parent / 'config' / 'detectors.yaml'
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
             
-            # Validate required sheets (with encoding tolerance for "Pozadí")
-            sheet_names = excel_file.sheet_names
-            required_base = ['Kalibrace', 'Vzorky', 'Parametry']
-            missing = [s for s in required_base if s not in sheet_names]
+            if detector_name not in config:
+                error = dbc.Alert(f"❌ Detektor '{detector_name}' nenalezen v konfiguraci", color="danger")
+                return None, True, 9.6229, 1.3793, 0, 9.6229, 1.3793, [0, 2048], error
             
-            # Find "Pozadí" or "Pozad?" (encoding issue)
-            pozadi_sheet = None
-            for sheet in sheet_names:
-                if sheet.startswith('Pozad'):
-                    pozadi_sheet = sheet
-                    break
+            detector_config = config[detector_name]
             
-            if pozadi_sheet is None:
-                missing.append('Pozadí')
+            # Extract parameters
+            calib_params = detector_config['calibration']
+            ref_a0 = float(calib_params['ref_a0'])
+            ref_a1 = float(calib_params['ref_a1'])
+            ref_a2 = float(calib_params['ref_a2'])
             
-            if missing:
-                error = dbc.Alert(f"❌ Chybí povinné sheety: {', '.join(missing)}", color="danger")
-                return None, error, True, 9.6229, 1.3793, 0, 9.62228359, 1.37495787, 150
+            processing = detector_config['processing']
+            cut_left = int(processing['cut_channel_left'])
+            cut_right = int(processing['cut_channel_right'])
             
-            # Read parameters sheet
-            params_df = pd.read_excel(excel_file, sheet_name='Parametry', header=None)
-            params_dict = dict(zip(params_df[0], params_df[1]))
+            # Load calibration SPE files
+            base_path = Path(__file__).parent.parent
+            calib_spectra = detector_config['calibration_spectra']
             
-            # Extract parameters with defaults
-            skip_rows = int(params_dict.get('skip_rows', 11))
+            from scripts.utils import parse_spe_file
             
-            # Read calibration data - detekce názvů sloupců
-            calib_sheet = excel_file.parse('Kalibrace')
-            calib_headers = calib_sheet.columns[1:].tolist()  # Názvy sloupců kromě prvního
+            # Parse Ra, K, Th SPE files
+            ra_path = base_path / calib_spectra['Ra']
+            k_path = base_path / calib_spectra['K']
+            th_path = base_path / calib_spectra['Th']
             
-            calib_df = pd.read_excel(excel_file, sheet_name='Kalibrace', skiprows=skip_rows, header=None)
-            calib_df.columns = ['CHNL'] + calib_headers
+            # Read and parse files
+            with open(ra_path, 'r', encoding='utf-8', errors='ignore') as f:
+                ra_spe = parse_spe_file(f.read())
+            with open(k_path, 'r', encoding='utf-8', errors='ignore') as f:
+                k_spe = parse_spe_file(f.read())
+            with open(th_path, 'r', encoding='utf-8', errors='ignore') as f:
+                th_spe = parse_spe_file(f.read())
             
-            # Odstranit řádky s NaN v CHNL před konverzí
-            calib_df = calib_df.dropna(subset=['CHNL'])
-            calib_df['CHNL'] = calib_df['CHNL'].astype(int)
+            # Build calibration DataFrame
+            max_channels = max(len(ra_spe['channels']), len(k_spe['channels']), len(th_spe['channels']))
             
-            # Zajistit pořadí Ra, K, Th (i když Excel má jiné pořadí)
-            calib_df = calib_df[['CHNL', 'Ra', 'K', 'Th']]
+            calib_df = pd.DataFrame()
+            calib_df['CHNL'] = range(max_channels)
+            calib_df['Ra'] = ra_spe['channels'][:max_channels] + [0] * (max_channels - len(ra_spe['channels']))
+            calib_df['K'] = k_spe['channels'][:max_channels] + [0] * (max_channels - len(k_spe['channels']))
+            calib_df['Th'] = th_spe['channels'][:max_channels] + [0] * (max_channels - len(th_spe['channels']))
             
-            # Read samples data - názvy vzorků jsou v hlavičce sloupců
-            samples_sheet = excel_file.parse('Vzorky')
-            sample_names = samples_sheet.columns[1:].tolist()  # Column headers kromě prvního
-            
-            # Live times jsou v řádku kde první sloupec == 'ELIVE'
-            elive_row = samples_sheet[samples_sheet.iloc[:, 0] == 'ELIVE']
-            if not elive_row.empty:
-                sample_live_times = elive_row.iloc[0, 1:].values.astype(float).tolist()
-            else:
-                # Fallback - hledej řádek s indexem 2 (třetí řádek)
-                sample_live_times = samples_sheet.iloc[2, 1:].values.astype(float).tolist()
-            
-            sample_df = pd.read_excel(excel_file, sheet_name='Vzorky', skiprows=skip_rows, header=None)
-            sample_df.columns = ['CHNL'] + sample_names
-            
-            # Odstranit řádky s NaN v CHNL před konverzí
-            sample_df = sample_df.dropna(subset=['CHNL'])
-            sample_df['CHNL'] = sample_df['CHNL'].astype(int)
-            
-            # Read background data - detekce všech sloupců pozadí
-            bg_sheet = excel_file.parse(pozadi_sheet)
-            bg_names = bg_sheet.columns[1:].tolist()  # Všechny sloupce kromě prvního
-            
-            # Načíst live times pro každé pozadí z ELIVE řádku
-            bg_elive_row = bg_sheet[bg_sheet.iloc[:, 0] == 'ELIVE']
-            if not bg_elive_row.empty:
-                bg_live_times = bg_elive_row.iloc[0, 1:len(bg_names)+1].values.astype(float).tolist()
-            else:
-                # Fallback - řádek s indexem 2
-                bg_live_times = bg_sheet.iloc[2, 1:len(bg_names)+1].values.astype(float).tolist()
-            
-            bg_df = pd.read_excel(excel_file, sheet_name=pozadi_sheet, skiprows=skip_rows, header=None)
-            bg_df.columns = ['CHNL'] + bg_names
-            bg_df['CHNL'] = bg_df['CHNL'].astype(int)
-            
-            # Store data
+            # Store data structure (compatible with analysis callbacks)
             data = {
                 'calibration': calib_df.to_dict('records'),
-                'samples': sample_df.to_dict('records'),
-                'background': bg_df.to_dict('records'),
-                'sample_names': sample_names,
-                'sample_live_times': sample_live_times,
-                'bg_names': bg_names,
-                'bg_live_times': bg_live_times,
-                'parameters': params_dict,
-                'filename': filename
+                'samples': [],  # Empty - samples loaded via SPE upload
+                'sample_names': [],
+                'sample_live_times': [],
+                'parameters': {
+                    'ref_a0': ref_a0,
+                    'ref_a1': ref_a1,
+                    'ref_a2': ref_a2,
+                    'Ra_faktor': float(detector_config['conversion_factors']['Ra_faktor']),
+                    'K_faktor': float(detector_config['conversion_factors']['K_faktor']),
+                    'Th_faktor': float(detector_config['conversion_factors']['Th_faktor']),
+                    'cut_channel': cut_left
+                },
+                'detector_name': detector_name
             }
             
-            # Print to console instead of UI
-            print(f"\n=== Excel loaded: {filename} ===")
-            print(f"Samples: {len(sample_names)}, Channels: {len(calib_df)}")
-            print(f"Backgrounds: {bg_names}")
-            
-            # Return parameters from Excel
-            ref_a0 = float(params_dict.get('ref_a0', 9.6229))
-            ref_a1 = float(params_dict.get('ref_a1', 1.3793))
-            ref_a2 = float(params_dict.get('ref_a2', 0))
+            print(f"\n=== Detector config loaded: {detector_name} ===")
+            print(f"Calibration: a₀={ref_a0}, a₁={ref_a1}, a₂={ref_a2}")
+            print(f"Calibration spectra loaded: Ra, K, Th ({max_channels} channels)")
             
             status_msg = html.Div([
                 html.Small([
                     html.I(className="fas fa-check-circle text-success me-1"),
-                    f"✅ Načteno: {filename}",
+                    f"✅ Načtena konfigurace: {detector_name}",
                     html.Br(),
-                    f"Vzorků: {len(sample_names)}, Pozadí: {len(bg_names)}"
+                    f"Kalibrační spektra: Ra, K, Th ({max_channels} kanálů)"
                 ], className="text-success")
             ])
             
             return (
                 data,
-                False,  # Enable analyze button
-                ref_a0,  # ref-a0 (hidden)
-                ref_a1,  # ref-a1 (hidden)
-                ref_a2,  # ref-a2 (hidden)
-                ref_a0,  # manual-a0 (visible)
-                ref_a1,  # manual-a1 (visible)
-                int(params_dict.get('cut_channel', 150)),
+                True,  # Disable analyze button until sample loaded
+                ref_a0,
+                ref_a1,
+                ref_a2,
+                ref_a0,
+                ref_a1,
+                [cut_left, cut_right],
                 status_msg
             )
             
         except Exception as e:
-            print(f"\n!!! ERROR loading Excel: {str(e)} !!!")
+            print(f"\n!!! ERROR loading detector config: {str(e)} !!!")
             import traceback
             traceback.print_exc()
             
@@ -164,7 +135,7 @@ def register_data_loading_callbacks(app):
                 ], className="text-danger")
             ])
             
-            return None, True, 9.6229, 1.3793, 0, 9.6229, 1.3793, 150, error_msg
+            return None, True, 9.6229, 1.3793, 0, 9.6229, 1.3793, [0, 2048], error_msg
     
     
     # ==================== UPDATE SAMPLE SELECTOR ====================
@@ -233,3 +204,160 @@ def register_data_loading_callbacks(app):
         if 'optimize' in optimize_value:
             return {'display': 'none'}
         return {'display': 'block'}
+    
+    
+    # ==================== SPE SAMPLE UPLOAD ====================
+    @app.callback(
+        [Output('excel-data', 'data', allow_duplicate=True),
+         Output('sample-selector', 'options', allow_duplicate=True),
+         Output('spe-status', 'children'),
+         Output('run-analysis', 'disabled', allow_duplicate=True),
+         Output('status-log', 'children', allow_duplicate=True)],
+        [Input('upload-spe', 'contents'),
+         Input('upload-spe', 'filename')],
+        State('excel-data', 'data'),
+        prevent_initial_call=True
+    )
+    def load_sample_spe(contents_list, filenames_list, excel_data):
+        """Load uploaded SPE sample files into excel_data structure"""
+        if not contents_list or not excel_data:
+            raise PreventUpdate
+        
+        from scripts.utils import parse_spe_file
+        
+        # Handle single file
+        if not isinstance(contents_list, list):
+            contents_list = [contents_list]
+            filenames_list = [filenames_list]
+        
+        loaded_samples = []
+        errors = []
+        
+        for content, filename in zip(contents_list, filenames_list):
+            try:
+                # Decode file
+                content_type, content_string = content.split(',')
+                decoded_bytes = base64.b64decode(content_string)
+                
+                # Try multiple encodings
+                decoded = None
+                for encoding in ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        decoded = decoded_bytes.decode(encoding)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                
+                if decoded is None:
+                    decoded = decoded_bytes.decode('latin1', errors='ignore')
+                
+                # Parse SPE
+                spe_data = parse_spe_file(decoded)
+                
+                # Use filename (without extension) as sample ID
+                import os
+                sample_id = os.path.splitext(filename)[0]
+                
+                # Add to excel_data structure
+                excel_data['sample_names'].append(sample_id)
+                excel_data['sample_live_times'].append(spe_data['ELIVE'])
+                
+                # Convert channel data to DataFrame format
+                channels = spe_data['channels']
+                
+                # If this is first sample, create samples structure
+                if not excel_data['samples']:
+                    for ch_num, count in enumerate(channels):
+                        excel_data['samples'].append({'CHNL': ch_num, sample_id: count})
+                else:
+                    # Add to existing structure
+                    for ch_num, count in enumerate(channels):
+                        if ch_num < len(excel_data['samples']):
+                            excel_data['samples'][ch_num][sample_id] = count
+                        else:
+                            # Extend if needed
+                            new_row = {'CHNL': ch_num, sample_id: count}
+                            excel_data['samples'].append(new_row)
+                
+                loaded_samples.append(sample_id)
+                
+            except Exception as e:
+                errors.append(f"{filename}: {str(e)}")
+                print(f"Error loading {filename}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Build minimal status badge for SPE upload area
+        if loaded_samples:
+            spe_status = dbc.Badge(
+                f"✓ {len(loaded_samples)} vzorků",
+                color="success",
+                className="mb-1"
+            )
+        else:
+            spe_status = dbc.Badge(
+                f"✗ {len(errors)} chyb",
+                color="danger",
+                className="mb-1"
+            )
+        
+        # Build detailed status message for status-log
+        status_lines = []
+        if loaded_samples:
+            status_lines.extend([
+                html.I(className="fas fa-upload text-success me-1"),
+                f"✅ Nahráno {len(loaded_samples)} vzorků:",
+                html.Br()
+            ])
+            for i, sample in enumerate(loaded_samples[:5]):  # Show first 5
+                status_lines.append(f"  • {sample}")
+                status_lines.append(html.Br())
+            if len(loaded_samples) > 5:
+                status_lines.append(f"  ... a {len(loaded_samples) - 5} dalších")
+                status_lines.append(html.Br())
+        
+        if errors:
+            status_lines.extend([
+                html.I(className="fas fa-exclamation-triangle text-warning me-1"),
+                f"⚠️ {len(errors)} chyb:",
+                html.Br()
+            ])
+            for i, err in enumerate(errors[:3]):  # Show first 3 errors
+                status_lines.append(f"  • {err}")
+                status_lines.append(html.Br())
+            if len(errors) > 3:
+                status_lines.append(f"  ... a {len(errors) - 3} dalších")
+                status_lines.append(html.Br())
+        
+        status_msg = html.Div([
+            html.Small(status_lines, className="text-muted")
+        ])
+        
+        # Update dropdown options
+        new_options = [{'label': name, 'value': name} for name in excel_data['sample_names']]
+        
+        # Enable analyze button if we have samples
+        enable_analysis = len(excel_data['sample_names']) > 0
+        
+        print(f"\n=== Loaded {len(loaded_samples)} samples ===")
+        for sample in loaded_samples:
+            idx = excel_data['sample_names'].index(sample)
+            print(f"  {sample}: ELIVE={excel_data['sample_live_times'][idx]:.2f}s")
+        
+        return excel_data, new_options, spe_status, not enable_analysis, status_msg
+    
+    
+    # ==================== ENABLE/DISABLE BATCH BUTTON ====================
+    @app.callback(
+        Output('run-batch-analysis', 'disabled'),
+        Input('excel-data', 'data')
+    )
+    def enable_batch_button(excel_data):
+        """Enable batch processing button when 2+ samples are loaded"""
+        if excel_data is None:
+            return True
+        
+        sample_count = len(excel_data.get('sample_names', []))
+        # Enable only if 2 or more samples
+        return sample_count < 2
+

@@ -13,29 +13,40 @@ def calculate_energy(channel, calib_coeffs):
     return sum(c * channel**i for i, c in enumerate(calib_coeffs))
 
 def rebin_spectrum(ref_calib, true_calib, counts):
-    """Rebin a spectrum using reference and true calibration coefficients."""
+    """Rebin a spectrum using reference and true calibration coefficients.
+    
+    Optimized version: computes energy arrays once instead of per-channel.
+    """
     num_channels = len(counts)
-    rebinned_spectrum = []
-
+    
+    # VECTORIZE: Compute energy arrays once (major speedup!)
+    channels = np.arange(num_channels + 1, dtype=np.float64)
+    channels_centers = np.arange(num_channels, dtype=np.float64)
+    
+    # Reference bin edges (where we're rebinning TO)
+    E_ref_edges = np.polyval(ref_calib[::-1], channels)
+    
+    # True energy centers (where spectrum IS)
+    E_true_centers = np.polyval(true_calib[::-1], channels_centers)
+    
+    rebinned_spectrum = np.zeros(num_channels, dtype=np.float64)
+    
     for i in range(num_channels):
-        if i == num_channels - 1:
-            E_lower = calculate_energy(i, ref_calib)
-            E_upper = calculate_energy(i + 1, ref_calib)
-        else:
-            E_lower = calculate_energy(i, ref_calib)
-            E_upper = calculate_energy(i + 1, ref_calib)
-
-        Etrap = np.linspace(E_lower, E_upper, num=1000)
-        E_true = np.array([calculate_energy(channel, true_calib) for channel in range(num_channels)], dtype=np.float64)
-        integrand = np.interp(Etrap, E_true, counts)
+        E_lower = E_ref_edges[i]
+        E_upper = E_ref_edges[i + 1]
         bin_width = E_upper - E_lower
-        rebinned_value = np.trapz(integrand, Etrap) / bin_width if bin_width != 0 else 0
+        
+        if bin_width == 0:
+            continue
+            
+        # Fine grid for trapezoidal integration (reduced from 1000 to 100 for speed)
+        Etrap = np.linspace(E_lower, E_upper, num=100)
+        integrand = np.interp(Etrap, E_true_centers, counts)
+        rebinned_spectrum[i] = np.trapz(integrand, Etrap) / bin_width
+    
+    return rebinned_spectrum
 
-        rebinned_spectrum.append(rebinned_value)
-
-    return np.array(rebinned_spectrum, dtype=np.float64)
-
-def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, bounds, method="L-BFGS-B", maxiter=1000, progress_callback=None):
+def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, bounds, method="L-BFGS-B", maxiter=1000):
     """Find optimal calibration coefficients for the sample spectrum to maximize R^2.
     
     Args:
@@ -46,7 +57,6 @@ def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, 
         bounds: Bounds for optimization
         method: Optimization method
         maxiter: Maximum iterations
-        progress_callback: Optional callback function(iteration, r2, coeffs)
     
     Returns:
         tuple: (optimized_coefficients, result_dict)
@@ -61,13 +71,6 @@ def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, 
         
         iteration_count[0] += 1
         print(f"Current coefficients: {true_calib}, Current R^2: {r2_score}")
-        
-        # Call progress callback if provided
-        if progress_callback is not None:
-            try:
-                progress_callback(iteration_count[0], r2_score, true_calib.tolist())
-            except Exception as e:
-                print(f"Progress callback error: {e}")
         
         return -r2_score  # Minimize negative R^2
 
@@ -296,3 +299,103 @@ def plot_calibration_spectra(calib_df, ref_calib):
                   labels={"Energy": "Energy (keV)", "Intensity": "Probability Density"},
                   hover_data={"Channel": True, "Energy": ":.2f"})
     fig.show()
+
+
+def parse_spe_file(content_string):
+    """Parse SPE file format and extract metadata and channel data.
+    
+    Args:
+        content_string: Decoded string content of SPE file
+        
+    Returns:
+        dict with keys: SIDENT, ELIVE, ECOFFSET, ECSLOPE, ECQUAD, CHANNELS, channels (list)
+        
+    Raises:
+        ValueError: If required tags are missing or format is invalid
+    """
+    lines = content_string.strip().split('\n')
+    result = {
+        'SIDENT': None,
+        'ELIVE': None,
+        'ECOFFSET': None,
+        'ECSLOPE': None,
+        'ECQUAD': None,
+        'CHANNELS': None,
+        'channels': []
+    }
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Parse SPEC_ID (sample name on next line)
+        if line.startswith('$SPEC_ID:'):
+            if i + 1 < len(lines):
+                result['SIDENT'] = lines[i + 1].strip()
+                i += 2
+                continue
+        
+        # Parse MEAS_TIM (first number is ELIVE)
+        elif line.startswith('$MEAS_TIM:'):
+            if i + 1 < len(lines):
+                meas_line = lines[i + 1].strip().split()
+                if len(meas_line) >= 1:
+                    result['ELIVE'] = float(meas_line[0])
+                i += 2
+                continue
+        
+        # Parse MCA_CAL (calibration coefficients)
+        elif line.startswith('$MCA_CAL:'):
+            if i + 2 < len(lines):
+                # Skip the "3" line, read coefficients from next line
+                cal_line = lines[i + 2].strip().split()
+                if len(cal_line) >= 3:
+                    result['ECOFFSET'] = float(cal_line[0])
+                    result['ECSLOPE'] = float(cal_line[1])
+                    result['ECQUAD'] = float(cal_line[2])
+                i += 3
+                continue
+        
+        # Parse DATA section
+        elif line.startswith('$DATA:'):
+            if i + 1 < len(lines):
+                # Parse "0 N" to get number of channels
+                data_header = lines[i + 1].strip().split()
+                if len(data_header) >= 2:
+                    max_channel = int(data_header[1])
+                    result['CHANNELS'] = max_channel + 1
+                    
+                    # Read channel data
+                    j = i + 2
+                    while j < len(lines) and len(result['channels']) < result['CHANNELS']:
+                        data_line = lines[j].strip()
+                        
+                        # Stop at next tag or ROI section
+                        if data_line.startswith('$'):
+                            break
+                        
+                        # Parse counts (one per line in SPE format)
+                        if data_line:
+                            try:
+                                result['channels'].append(int(data_line))
+                            except ValueError:
+                                break
+                        j += 1
+                    
+                    i = j
+                    continue
+        
+        i += 1
+    
+    # Validate required fields
+    # SIDENT is optional - will be set from filename if missing
+    if result['CHANNELS'] is None:
+        raise ValueError("Missing $DATA: tag in SPE file")
+    if result['ECOFFSET'] is None or result['ECSLOPE'] is None:
+        raise ValueError("Missing or incomplete $MCA_CAL: tag in SPE file")
+    
+    # Pad channels if incomplete
+    if len(result['channels']) < result['CHANNELS']:
+        result['channels'].extend([0] * (result['CHANNELS'] - len(result['channels'])))
+    
+    return result
