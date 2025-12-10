@@ -314,6 +314,23 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
     sample_idx = excel_data['sample_names'].index(sample_name)
     sample_live_time = excel_data['sample_live_times'][sample_idx]
     
+    # DIAGNOSTICS: Print pairing information
+    print(f"\n{'='*60}")
+    print(f"📊 SAMPLE PAIRING CHECK:")
+    print(f"{'='*60}")
+    print(f"Sample name: {sample_name}")
+    print(f"Sample index in list: {sample_idx}")
+    print(f"Live time from list: {sample_live_time:.2f} s")
+    print(f"All samples in data: {excel_data['sample_names']}")
+    print(f"All live times: {[f'{lt:.2f}' for lt in excel_data['sample_live_times']]}")
+    print(f"Columns in sample_df: {list(sample_df.columns)}")
+    if sample_name in sample_df.columns:
+        sample_total_counts = sample_df[sample_name].sum()
+        print(f"Total counts in spectrum: {sample_total_counts:.0f}")
+    else:
+        print(f"⚠️ WARNING: {sample_name} NOT FOUND in sample_df columns!")
+    print(f"{'='*60}\n")
+    
     # Note: Calibration spectra are already normalized to CPS/Bq in data_loading.py
     # No additional normalization needed here - coefficients will directly give Bq
     
@@ -412,12 +429,43 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
         else:
             calib_method = f"a₀={sample_calib[0]:.4f}, a₁={sample_calib[1]:.4f}"
     
-    # Rebin sample
+    # DIAGNOSTICS: Check sample spectrum before rebinning
+    print(f"\n🔍 REBINNING DIAGNOSTICS:")
+    print(f"Sample spectrum BEFORE rebin:")
+    print(f"  Sum (total CPS): {sample_spectrum.sum():.2f}")
+    print(f"  Mean CPS/channel: {sample_spectrum.mean():.4f}")
+    print(f"  Max CPS: {sample_spectrum.max():.2f}")
+    
+    # Check calibration difference
+    calib_diff_a0 = abs(sample_calib[0] - ref_calib[0]) / ref_calib[0] * 100
+    calib_diff_a1 = abs(sample_calib[1] - ref_calib[1]) / ref_calib[1] * 100
+    print(f"\nCalibration difference:")
+    print(f"  Ref:    a0={ref_calib[0]:.4f}, a1={ref_calib[1]:.4f}")
+    print(f"  Sample: a0={sample_calib[0]:.4f}, a1={sample_calib[1]:.4f}")
+    print(f"  Diff:   Δa0={calib_diff_a0:.3f}%, Δa1={calib_diff_a1:.3f}%")
+    
+    # Rebin sample (always enabled)
     sample_rebinned = rebin_spectrum(ref_calib, sample_calib, sample_spectrum)
+    
+    print(f"Sample spectrum AFTER rebin:")
+    print(f"  Sum (total CPS): {sample_rebinned.sum():.2f}")
+    print(f"  Mean CPS/channel: {sample_rebinned.mean():.4f}")
+    print(f"  Max CPS: {sample_rebinned.max():.2f}")
+    print(f"  Conservation ratio: {sample_rebinned.sum() / sample_spectrum.sum():.6f}")
+    print(f"  {'✅ Conserved' if abs(sample_rebinned.sum() / sample_spectrum.sum() - 1.0) < 0.01 else '❌ NOT CONSERVED!'}")
     
     # Build predictor matrix
     X = calib_df[["Ra", "K", "Th"]].values
     component_names = ['Ra', 'K', 'Th']
+    
+    # Check calibration matrix
+    print(f"\nCalibration matrix X (first 3 channels):")
+    print(f"  Ra: {X[:3, 0]}")
+    print(f"  K:  {X[:3, 1]}")  
+    print(f"  Th: {X[:3, 2]}")
+    print(f"  Sum of Ra calibration: {X[:, 0].sum():.6e}")
+    print(f"  Sum of K calibration: {X[:, 1].sum():.6e}")
+    print(f"  Sum of Th calibration: {X[:, 2].sum():.6e}")
     
     # Run regression - either dual ROI or standard
     if enable_roi and roi1_range and roi2_range:

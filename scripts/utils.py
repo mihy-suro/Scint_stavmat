@@ -15,34 +15,46 @@ def calculate_energy(channel, calib_coeffs):
 def rebin_spectrum(ref_calib, true_calib, counts):
     """Rebin a spectrum using reference and true calibration coefficients.
     
-    Optimized version: computes energy arrays once instead of per-channel.
+    Converts spectrum from true_calib binning to ref_calib binning while conserving total counts.
+    Key: Interpolates spectral DENSITY (counts/keV), not raw counts.
     """
     num_channels = len(counts)
     
-    # VECTORIZE: Compute energy arrays once (major speedup!)
+    # Channel arrays
     channels = np.arange(num_channels + 1, dtype=np.float64)
     channels_centers = np.arange(num_channels, dtype=np.float64)
     
     # Reference bin edges (where we're rebinning TO)
     E_ref_edges = np.polyval(ref_calib[::-1], channels)
     
-    # True energy centers (where spectrum IS)
-    E_true_centers = np.polyval(true_calib[::-1], channels_centers)
+    # True energy edges and centers (where spectrum IS)
+    E_true_edges = np.polyval(true_calib[::-1], channels)
+    E_true_centers = (E_true_edges[:-1] + E_true_edges[1:]) / 2
+    
+    # Calculate true bin widths
+    true_bin_widths = np.diff(E_true_edges)
+    
+    # Convert counts to spectral density [counts/keV]
+    # This is the key: we need to interpolate density, not counts!
+    density = counts / true_bin_widths
     
     rebinned_spectrum = np.zeros(num_channels, dtype=np.float64)
     
     for i in range(num_channels):
         E_lower = E_ref_edges[i]
         E_upper = E_ref_edges[i + 1]
-        bin_width = E_upper - E_lower
         
-        if bin_width == 0:
+        if E_upper - E_lower == 0:
             continue
             
-        # Fine grid for trapezoidal integration (reduced from 1000 to 100 for speed)
+        # Fine grid for trapezoidal integration
         Etrap = np.linspace(E_lower, E_upper, num=100)
-        integrand = np.interp(Etrap, E_true_centers, counts)
-        rebinned_spectrum[i] = np.trapz(integrand, Etrap) / bin_width
+        
+        # Interpolate DENSITY (not counts!)
+        density_interp = np.interp(Etrap, E_true_centers, density)
+        
+        # Integrate density to get total counts in new bin
+        rebinned_spectrum[i] = np.trapz(density_interp, Etrap)
     
     return rebinned_spectrum
 
