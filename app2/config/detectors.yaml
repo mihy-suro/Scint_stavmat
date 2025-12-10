@@ -1,5 +1,5 @@
 # Konfigurace detektorů pro gamma spektroskopii
-# Obsahuje kalibrační parametry, konverzní faktory a cesty ke kalibračním spektrům
+# Obsahuje kalibrační parametry, aktivity etalonů a cesty ke kalibračním spektrům
 
 CeBr3:
   calibration:
@@ -7,10 +7,14 @@ CeBr3:
     ref_a1: 1.3793        # Referenční kalibrace - slope [keV/kanál]
     ref_a2: 0.0           # Referenční kalibrace - kvadratický člen [keV/kanál²]
   
-  conversion_factors:
-    Ra_faktor: 13.9       # Konverzní faktor Ra-226 [1/Bq]
-    K_faktor: 212.0       # Konverzní faktor K-40 [1/Bq]
-    Th_faktor: 7.4        # Konverzní faktor Th-232 [1/Bq]
+  standard_activities:
+    Ra: 1001.4            # Aktivita Ra-226 etalonu [Bq]
+    K: 21330.0            # Aktivita K-40 etalonu [Bq]
+    Th: 1020.0            # Aktivita Th-232 etalonu [Bq]
+  
+  roi_ranges:
+    roi1: [200, 800]      # Ra/Th region [keV]
+    roi2: [700, 1640]     # K-40 region [keV]
   
   processing:
     cut_channel_left: 0   # Levý cutoff kanál (pod tímto se data vynulují)
@@ -27,10 +31,14 @@ NaI(Tl):
     ref_a1: 1.3793
     ref_a2: 0.0
   
-  conversion_factors:
-    Ra_faktor: 13.9       # TODO: Ověřit faktory pro NaI(Tl) geometrii
-    K_faktor: 212.0
-    Th_faktor: 7.4
+  standard_activities:
+    Ra: 1001.4            # TODO: Ověřit aktivity etalonů pro NaI(Tl)
+    K: 21330.0
+    Th: 1020.0
+  
+  roi_ranges:
+    roi1: [200, 2800]      # Ra/Th region [keV]
+    roi2: [700, 1640]     # K-40 region [keV]
   
   processing:
     cut_channel_left: 0

@@ -30,19 +30,23 @@ def register_calibration_callbacks(app):
          Output('select-e-295', 'color'),
          Output('select-e-352', 'color'),
          Output('select-e-609', 'color'),
-         Output('select-e-1461', 'color')],
-        [Input('spectrum-plot', 'clickData'),
+         Output('select-e-1461', 'color'),
+         Output('select-e-1764', 'color'),
+         Output('select-e-2614', 'color')],
+        [Input('spectrum-plot-full', 'clickData'),
          Input('select-e-238', 'n_clicks'),
          Input('select-e-295', 'n_clicks'),
          Input('select-e-352', 'n_clicks'),
          Input('select-e-609', 'n_clicks'),
-         Input('select-e-1461', 'n_clicks')],
+         Input('select-e-1461', 'n_clicks'),
+         Input('select-e-1764', 'n_clicks'),
+         Input('select-e-2614', 'n_clicks')],
         [State('peak-calibration-data', 'data'),
          State('sample-selector', 'value'),
          State('excel-data', 'data'),
          State('current-sample-calib', 'data')]
     )
-    def handle_peak_calibration(click_data, n238, n295, n352, n609, n1461, calib_data, selected_sample, excel_data, current_sample_calib):
+    def handle_peak_calibration(click_data, n238, n295, n352, n609, n1461, n1764, n2614, calib_data, selected_sample, excel_data, current_sample_calib):
         """Handle energy selection and graph clicks for manual calibration"""
         if not callback_context.triggered:
             raise PreventUpdate
@@ -54,8 +58,8 @@ def register_calibration_callbacks(app):
             calib_data = {'peaks': {}, 'active_energy': None}
         
         # Default button colors
-        colors = ['light', 'light', 'light', 'light', 'light']
-        energy_list = ['238', '295', '352', '609', '1461']
+        colors = ['light', 'light', 'light', 'light', 'light', 'light', 'light']
+        energy_list = ['238', '295', '352', '609', '1461', '1764', '2614']
         
         # Mark assigned energies as success (green)
         for i, e in enumerate(energy_list):
@@ -77,7 +81,7 @@ def register_calibration_callbacks(app):
             return calib_data, *colors
         
         # Handle graph click - assign channel to active energy
-        if trigger_id == 'spectrum-plot' and click_data and calib_data.get('active_energy'):
+        if trigger_id == 'spectrum-plot-full' and click_data and calib_data.get('active_energy'):
             # Get energy from clicked point (x is always in keV)
             energy_clicked = click_data['points'][0]['x']
             
@@ -131,16 +135,18 @@ def register_calibration_callbacks(app):
          Output('peak-ch-352', 'children'),
          Output('peak-ch-609', 'children'),
          Output('peak-ch-1461', 'children'),
+         Output('peak-ch-1764', 'children'),
+         Output('peak-ch-2614', 'children'),
          Output('calculate-calibration', 'disabled')],
         Input('peak-calibration-data', 'data')
     )
     def update_peak_displays(calib_data):
         """Update channel displays in table"""
         if not calib_data or 'peaks' not in calib_data:
-            return "-", "-", "-", "-", "-", True
+            return "-", "-", "-", "-", "-", "-", "-", True
         
         peaks = calib_data['peaks']
-        values = [peaks.get(e, '-') for e in ['238', '295', '352', '609', '1461']]
+        values = [peaks.get(e, '-') for e in ['238', '295', '352', '609', '1461', '1764', '2614']]
         
         # Enable calculate button if at least 2 peaks defined
         num_peaks = sum(1 for v in values if v != '-')
@@ -388,6 +394,20 @@ def register_calibration_callbacks(app):
             return {'display': 'none'}
     
     
+    # ==================== CALIBRATION PLOT TOGGLE ====================
+    @app.callback(
+        Output('calibration-plot-collapse', 'is_open'),
+        Input('calibration-plot-toggle', 'n_clicks'),
+        State('calibration-plot-collapse', 'is_open'),
+        prevent_initial_call=True
+    )
+    def toggle_calibration_plot(n_clicks, is_open):
+        """Toggle calibration plot visibility"""
+        if n_clicks:
+            return not is_open
+        return is_open
+    
+    
     # ==================== OPTIMIZATION SETTINGS TOGGLE ====================
     @app.callback(
         Output('optimization-settings-collapse', 'is_open'),
@@ -396,4 +416,5 @@ def register_calibration_callbacks(app):
     def toggle_optimization_settings(optimize_value):
         """Show/hide optimization settings when optimization is enabled"""
         return 'optimize' in (optimize_value or [])
+
 

@@ -6,11 +6,299 @@ from .utils import *
 from datetime import datetime
 
 
+def register_analysis_callbacks(app):
+    """Register analysis-related callbacks"""
+    
+    # ==================== AUTO-LOAD PREVIOUS RESULTS ====================
+    @app.callback(
+        Output('sample-results', 'data', allow_duplicate=True),
+        Input('sample-selector', 'value'),
+        State('accumulated-results', 'data'),
+        prevent_initial_call=True
+    )
+    def load_previous_results_if_available(selected_sample, accumulated_results):
+        """Load previous analysis results if returning to analyzed sample"""
+        if not selected_sample or not accumulated_results:
+            return None
+        
+        # Search for existing results
+        for result in accumulated_results:
+            if isinstance(result, dict) and result.get('sample_name') == selected_sample:
+                return result  # Load previous analysis
+        
+        # No previous analysis found - return None to clear results
+        return None
+    
+    # ==================== MAIN ANALYSIS ====================
+    @app.callback(
+        [Output('sample-results', 'data'),
+         Output('accumulated-results', 'data', allow_duplicate=True),
+         Output('manual-a0', 'value', allow_duplicate=True),
+         Output('manual-a1', 'value', allow_duplicate=True),
+         Output('manual-a2', 'value', allow_duplicate=True),
+         Output('status-log', 'children', allow_duplicate=True),
+         Output('run-analysis', 'children', allow_duplicate=True),
+         Output('run-analysis', 'color', allow_duplicate=True)],
+        Input('run-analysis', 'n_clicks'),
+        [State('excel-data', 'data'),
+         State('sample-selector', 'value'),
+         State('ref-a0', 'value'),
+         State('ref-a1', 'value'),
+         State('ref-a2', 'value'),
+         State('current-sample-calib', 'data'),
+         State('polynomial-degree', 'value'),
+         State('optimize-calibration', 'value'),
+         State('optimization-method', 'value'),
+         State('max-iterations', 'value'),
+         State('regression-method', 'value'),
+         State('accumulated-results', 'data'),
+         State('roi1-range', 'data'),
+         State('roi2-range', 'data'),
+         State('k-source-roi', 'data')],
+        prevent_initial_call=True
+    )
+    def run_analysis(n_clicks, data, selected_sample, ref_a0, ref_a1, ref_a2,
+                     current_sample_calib, poly_degree,
+                     optimize_value, opt_method, max_iter, regression_method, accumulated_results,
+                     roi1_range, roi2_range, k_source_roi):
+        """Run analysis for selected sample"""
+        if data is None or selected_sample is None:
+            raise PreventUpdate
+        
+        try:
+            # Reference calibration
+            ref_calib = [ref_a0, ref_a1, ref_a2]
+            
+            # ROI analysis always enabled - validate ROI ranges
+            use_roi = roi1_range and roi2_range
+            if use_roi:
+                # Validate ROI ranges
+                if None in roi1_range or None in roi2_range:
+                    use_roi = False
+            
+            # Default K source if not set
+            if not k_source_roi:
+                k_source_roi = 'roi1'
+            
+            # Use shared analysis function
+            results, calib_method, opt_info, sample_calib = analyze_single_sample(
+                selected_sample, data, ref_calib, current_sample_calib,
+                poly_degree, optimize_value, opt_method,
+                max_iter, regression_method,
+                roi1_range=roi1_range if use_roi else None,
+                roi2_range=roi2_range if use_roi else None,
+                enable_roi=use_roi,
+                k_source_roi=k_source_roi
+            )
+            
+            # Add to accumulated results
+            if accumulated_results is None:
+                accumulated_results = []
+            
+            # Check if sample already in accumulated results, if so replace it
+            existing_idx = None
+            for idx, res in enumerate(accumulated_results):
+                # Safety check - ensure res is a dict with sample_name
+                if isinstance(res, dict) and 'sample_name' in res:
+                    if res['sample_name'] == selected_sample:
+                        existing_idx = idx
+                        break
+            
+            if existing_idx is not None:
+                accumulated_results[existing_idx] = results
+            else:
+                accumulated_results.append(results)
+            
+            # Build status message
+            status_lines = [
+                html.I(className="fas fa-check-circle text-success me-1"),
+                f"✅ Analýza dokončena: {selected_sample}",
+                html.Br(),
+                f"Kalibrace: {calib_method}",
+                html.Br(),
+                f"Metoda: {regression_method}"
+            ]
+            
+            if use_roi:
+                status_lines.extend([
+                    html.Br(),
+                    f"🎯 ROI #1: {roi1_range[0]:.0f}-{roi1_range[1]:.0f} keV (Ra/Th)",
+                    html.Br(),
+                    f"🎯 ROI #2: {roi2_range[0]:.0f}-{roi2_range[1]:.0f} keV (K-40)"
+                ])
+            
+            if opt_info:
+                status_lines.extend([html.Br(), opt_info])
+            
+            status_msg = html.Div([
+                html.Small(status_lines, className="text-success")
+            ])
+            
+            # If optimization was used, return optimized values
+            is_optimizing = 'optimize' in optimize_value
+            if is_optimizing:
+                return results, accumulated_results, sample_calib[0], sample_calib[1], sample_calib[2], status_msg, [html.I(className="fas fa-check me-2"), "Hotovo!"], 'success'
+            else:
+                return results, accumulated_results, no_update, no_update, no_update, status_msg, [html.I(className="fas fa-check me-2"), "Hotovo!"], 'success'
+            
+        except Exception as e:
+            print(f"\n!!! ERROR in analysis: {str(e)} !!!")
+            import traceback
+            traceback.print_exc()
+            
+            error_msg = html.Div([
+                html.Small([
+                    html.I(className="fas fa-exclamation-triangle text-danger me-1"),
+                    f"❌ Chyba: {str(e)}"
+                ], className="text-danger")
+            ])
+            
+            return None, no_update, no_update, no_update, no_update, error_msg, [html.I(className="fas fa-times me-2"), "Chyba"], 'danger'
+    
+    
+    # ==================== SAMPLE SELECTOR - AUTO, NEXT & PREVIOUS ====================
+    @app.callback(
+        [Output('sample-selector', 'value'),
+         Output('status-log', 'children', allow_duplicate=True),
+         Output('run-analysis', 'children', allow_duplicate=True),
+         Output('run-analysis', 'color', allow_duplicate=True)],
+        [Input('sample-selector', 'options'),
+         Input('next-sample-button', 'n_clicks'),
+         Input('previous-sample-button', 'n_clicks')],
+        [State('sample-selector', 'value'),
+         State('excel-data', 'data')],
+        prevent_initial_call=True
+    )
+    def handle_sample_selection(sample_options, next_clicks, prev_clicks, current_sample, excel_data):
+        """Handle auto-selection of first sample, next button, and previous button clicks"""
+        ctx = callback_context
+        
+        if not ctx.triggered:
+            raise PreventUpdate
+        
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        
+        # Reset button to default state
+        button_content = [html.I(className="fas fa-play me-2"), "Analyzovat"]
+        button_color = 'primary'
+        
+        # Case 1: Options changed (new data loaded) - select first sample
+        if trigger_id == 'sample-selector':
+            if not sample_options:
+                return None, no_update, no_update, no_update
+            
+            selected = sample_options[0]['value']
+            
+            # Show sample info
+            if excel_data and selected:
+                idx = excel_data['sample_names'].index(selected)
+                live_time = excel_data['sample_live_times'][idx]
+                
+                status_msg = html.Div([
+                    html.Small([
+                        html.I(className="fas fa-vial text-info me-1"),
+                        f"🔬 Vzorek načten: {selected}",
+                        html.Br(),
+                        f"Live time: {live_time:.1f} s"
+                    ], className="text-info")
+                ])
+                
+                return selected, status_msg, button_content, button_color
+            
+            return selected, no_update, button_content, button_color
+        
+        # Case 2: Next button clicked - move to next sample
+        elif trigger_id == 'next-sample-button':
+            if not sample_options or not current_sample:
+                raise PreventUpdate
+            
+            # Find current sample index
+            sample_values = [opt['value'] for opt in sample_options]
+            try:
+                current_idx = sample_values.index(current_sample)
+            except ValueError:
+                raise PreventUpdate
+            
+            # Check if there's a next sample
+            if current_idx >= len(sample_values) - 1:
+                status_msg = html.Div([
+                    html.Small([
+                        html.I(className="fas fa-info-circle text-info me-1"),
+                        "ℹ️ Již jste na posledním vzorku"
+                    ], className="text-info")
+                ])
+                return no_update, status_msg, no_update, no_update
+            
+            # Get next sample
+            next_sample = sample_values[current_idx + 1]
+            total_samples = len(sample_values)
+            
+            print(f"\n=== NEXT SAMPLE: [{current_idx + 2}/{total_samples}] {next_sample} ===")
+            
+            status_msg = html.Div([
+                html.Small([
+                    html.I(className="fas fa-arrow-right text-primary me-1"),
+                    f"➡️ Načten vzorek {current_idx + 2}/{total_samples}: {next_sample}",
+                    html.Br(),
+                    "Klikněte 'Analyzovat' pro zpracování"
+                ], className="text-primary")
+            ])
+            
+            return next_sample, status_msg, button_content, button_color
+        
+        # Case 3: Previous button clicked - move to previous sample
+        elif trigger_id == 'previous-sample-button':
+            if not sample_options or not current_sample:
+                raise PreventUpdate
+            
+            # Find current sample index
+            sample_values = [opt['value'] for opt in sample_options]
+            try:
+                current_idx = sample_values.index(current_sample)
+            except ValueError:
+                raise PreventUpdate
+            
+            # Check if there's a previous sample
+            if current_idx == 0:
+                status_msg = html.Div([
+                    html.Small([
+                        html.I(className="fas fa-info-circle text-info me-1"),
+                        "ℹ️ Již jste na prvním vzorku"
+                    ], className="text-info")
+                ])
+                return no_update, status_msg, no_update, no_update
+            
+            # Get previous sample
+            prev_sample = sample_values[current_idx - 1]
+            total_samples = len(sample_values)
+            
+            print(f"\n=== PREVIOUS SAMPLE: [{current_idx}/{total_samples}] {prev_sample} ===")
+            
+            status_msg = html.Div([
+                html.Small([
+                    html.I(className="fas fa-arrow-left text-primary me-1"),
+                    f"⬅️ Načten vzorek {current_idx}/{total_samples}: {prev_sample}",
+                    html.Br(),
+                    "Klikněte 'Analyzovat' pro zpracování"
+                ], className="text-primary")
+            ])
+            
+            return prev_sample, status_msg, button_content, button_color
+        
+        raise PreventUpdate
+
+
 def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_calib, 
-                          cut_range, poly_degree, optimize_value, opt_method, 
-                          max_iter, regression_method):
+                          poly_degree, optimize_value, opt_method, 
+                          max_iter, regression_method, roi1_range=None, roi2_range=None, enable_roi=False, k_source_roi='roi1'):
     """
     Analyze a single sample - extracted logic for reuse in batch processing
+    
+    Args:
+        roi1_range: [min_keV, max_keV] for Ra/Th region (optional)
+        roi2_range: [min_keV, max_keV] for K-40 region (optional)
+        enable_roi: Boolean to enable dual ROI analysis
+        k_source_roi: 'roi1' or 'roi2' - which ROI to use for K coefficient in final results
     
     Returns:
         dict: Analysis results or None if error
@@ -18,9 +306,6 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
         str: Optimization info (or None)
         list: Sample calibration coefficients [a0, a1, a2]
     """
-    # Extract cut range
-    cut_channel = cut_range[0] if cut_range else 0
-    cut_channel_right = cut_range[1] if cut_range else 2048
     
     # Convert data back to DataFrames
     calib_df = pd.DataFrame(excel_data['calibration'])
@@ -29,19 +314,8 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
     sample_idx = excel_data['sample_names'].index(sample_name)
     sample_live_time = excel_data['sample_live_times'][sample_idx]
     
-    # Get conversion factors from parameters
-    params = excel_data['parameters']
-    factor_ra = float(params.get('Ra_faktor', 13.9))
-    factor_k = float(params.get('K_faktor', 212))
-    factor_th = float(params.get('Th_faktor', 7.4))
-    
-    # Normalize calibration spectra to probability density
-    for column in ["Ra", "K", "Th"]:
-        total_counts = calib_df[column].sum()
-        if total_counts > 0:
-            calib_df[column] = calib_df[column] / total_counts
-        else:
-            calib_df[column] = 0
+    # Note: Calibration spectra are already normalized to CPS/Bq in data_loading.py
+    # No additional normalization needed here - coefficients will directly give Bq
     
     # Normalize sample to CPS
     sample_df_norm = sample_df.copy()
@@ -50,21 +324,22 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
     else:
         sample_df_norm[sample_name] = 0
     
-    # Get sample spectrum
+    # Get sample spectrum (use full spectrum - ROI masking handled later)
     sample_spectrum = sample_df_norm[sample_name].values
     
-    # Store original uncut data
-    sample_spectrum_uncut = sample_spectrum.copy()
-    calib_df_uncut = calib_df.copy()
+    # Helper function to create energy mask
+    def create_energy_mask(roi_range, ref_calib, spectrum_length):
+        """Create boolean mask for channels within energy range"""
+        energies = np.array([calculate_energy(ch, ref_calib) for ch in range(spectrum_length)])
+        return (energies >= roi_range[0]) & (energies <= roi_range[1])
     
-    # Create temporary masked copies for fitting
-    mask = (sample_df['CHNL'] > cut_channel) & (sample_df['CHNL'] <= cut_channel_right)
-    
-    sample_spectrum_for_fit = sample_spectrum.copy()
-    sample_spectrum_for_fit[~mask] = 0
-    
-    calib_df_for_fit = calib_df.copy()
-    calib_df_for_fit.loc[~mask, ["Ra", "K", "Th"]] = 0
+    # Create ROI masks early if needed for optimization
+    optimization_roi_mask = None
+    if enable_roi and roi1_range and roi2_range:
+        # For optimization with dual ROI: combine both ROI regions (union)
+        mask_roi1 = create_energy_mask(roi1_range, ref_calib, len(sample_spectrum))
+        mask_roi2 = create_energy_mask(roi2_range, ref_calib, len(sample_spectrum))
+        optimization_roi_mask = mask_roi1 | mask_roi2  # Union of both ROIs
     
     # Determine calibration coefficients
     is_optimizing = 'optimize' in optimize_value
@@ -108,11 +383,12 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
         sample_calib, opt_result = find_optimal_calibration(
             ref_calib,
             initial_sample_calib,
-            calib_df_for_fit[["Ra", "K", "Th"]].values,
-            sample_spectrum_for_fit,
+            calib_df[["Ra", "K", "Th"]].values,
+            sample_spectrum,
             bounds,
             method=opt_method or 'L-BFGS-B',
-            maxiter=max_iter or 1000
+            maxiter=max_iter or 1000,
+            roi_mask=optimization_roi_mask  # Pass ROI mask to optimization
         )
         
         # Ensure 3 elements
@@ -137,40 +413,165 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
             calib_method = f"a₀={sample_calib[0]:.4f}, a₁={sample_calib[1]:.4f}"
     
     # Rebin sample
-    sample_rebinned = rebin_spectrum(ref_calib, sample_calib, sample_spectrum_for_fit)
+    sample_rebinned = rebin_spectrum(ref_calib, sample_calib, sample_spectrum)
     
     # Build predictor matrix
-    X = calib_df_for_fit[["Ra", "K", "Th"]].values
+    X = calib_df[["Ra", "K", "Th"]].values
     component_names = ['Ra', 'K', 'Th']
     
-    # Run regression
-    if regression_method == 'OLS':
-        results_method = compile_results_dynamic(X, sample_rebinned, "OLS", ols, component_names)
+    # Run regression - either dual ROI or standard
+    if enable_roi and roi1_range and roi2_range:
+        print(f"\n{'='*60}")
+        print(f"DUAL ROI ANALYSIS")
+        print(f"{'='*60}")
+        print(f"ROI #1 (Ra/Th): {roi1_range[0]:.1f}-{roi1_range[1]:.1f} keV")
+        print(f"ROI #2 (K-40):  {roi2_range[0]:.1f}-{roi2_range[1]:.1f} keV")
+        
+        # Region 1: Ra/Th analysis
+        mask_roi1 = create_energy_mask(roi1_range, ref_calib, len(sample_rebinned))
+        X_roi1 = X.copy()
+        y_roi1 = sample_rebinned.copy()
+        X_roi1[~mask_roi1] = 0
+        y_roi1[~mask_roi1] = 0
+        
+        print(f"\n→ Fitting ROI #1 ({np.sum(mask_roi1)} channels)...")
+        
+        # Fit on ROI1
+        if regression_method == 'OLS':
+            results_roi1 = compile_results_dynamic(X_roi1, y_roi1, "OLS", ols, component_names)
+        else:
+            results_roi1 = compile_results_dynamic(X_roi1, y_roi1, "NNLS", 
+                                          lambda X, y: nnls_detailed(X, y, num_bootstrap=50), component_names)
+        
+        ra_coeff = results_roi1['Coefficients']['Ra']
+        th_coeff = results_roi1['Coefficients']['Th']
+        k_coeff_roi1 = results_roi1['Coefficients']['K']
+        
+        print(f"  Ra: {ra_coeff:.2e}, K: {k_coeff_roi1:.2e}, Th: {th_coeff:.2e}")
+        
+        # Region 2: K-40 analysis
+        mask_roi2 = create_energy_mask(roi2_range, ref_calib, len(sample_rebinned))
+        X_roi2 = X.copy()
+        y_roi2 = sample_rebinned.copy()
+        X_roi2[~mask_roi2] = 0
+        y_roi2[~mask_roi2] = 0
+        
+        print(f"\n→ Fitting ROI #2 ({np.sum(mask_roi2)} channels)...")
+        
+        # Fit on ROI2
+        if regression_method == 'OLS':
+            results_roi2 = compile_results_dynamic(X_roi2, y_roi2, "OLS", ols, component_names)
+        else:
+            results_roi2 = compile_results_dynamic(X_roi2, y_roi2, "NNLS", 
+                                          lambda X, y: nnls_detailed(X, y, num_bootstrap=50), component_names)
+        
+        k_coeff_roi2 = results_roi2['Coefficients']['K']
+        ra_roi2 = results_roi2['Coefficients']['Ra']
+        th_roi2 = results_roi2['Coefficients']['Th']
+        
+        print(f"  Ra: {ra_roi2:.2e}, K: {k_coeff_roi2:.2e}, Th: {th_roi2:.2e}")
+        
+        # Select K coefficient based on k_source_roi
+        print(f"\n→ Merging coefficients...")
+        if k_source_roi == 'roi2':
+            k_coeff = k_coeff_roi2
+            print(f"  Using K from ROI #2: {k_coeff:.2e}")
+        else:  # roi1 or default
+            k_coeff = k_coeff_roi1
+            print(f"  Using K from ROI #1: {k_coeff:.2e}")
+        
+        # Merge coefficients: Ra, Th from ROI1; K from selected ROI
+        merged_coeffs = np.array([ra_coeff, k_coeff, th_coeff])
+        
+        # Calculate full fitted spectrum using merged coefficients
+        fitted_spectrum = X @ merged_coeffs
+        
+        # Calculate global R² on FULL spectrum
+        ss_res = np.sum((sample_rebinned - fitted_spectrum)**2)
+        ss_tot = np.sum((sample_rebinned - np.mean(sample_rebinned))**2)
+        r2_global = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+        
+        n, p = X.shape
+        r2_adj = 1 - (1 - r2_global) * (n - 1) / (n - p) if n > p else r2_global
+        
+        # Package merged results
+        results_method = {
+            "Method": f"{regression_method} (ROI dual)",
+            "Coefficients": {'Ra': ra_coeff, 'K': k_coeff, 'Th': th_coeff},
+            "Std Errors": {
+                'Ra': results_roi1['Std Errors']['Ra'],
+                'K': results_roi2['Std Errors']['K'] if k_source_roi == 'roi2' else results_roi1['Std Errors']['K'],
+                'Th': results_roi1['Std Errors']['Th']
+            },
+            "P Values": {'Ra': 0, 'K': 0, 'Th': 0},
+            "R^2": r2_global,
+            "Adjusted R^2": r2_adj
+        }
+        
+        print(f"\n→ Final merged coefficients:")
+        print(f"  Ra: {ra_coeff:.2e} (from ROI1)")
+        print(f"  K:  {k_coeff:.2e} (from {'ROI2' if k_source_roi == 'roi2' else 'ROI1'})")
+        print(f"  Th: {th_coeff:.2e} (from ROI1)")
+        print(f"  Global R²: {r2_global:.6f}")
+        print(f"{'='*60}\n")
+        
+        # Store ROI-specific fitted spectra using INDEPENDENT coefficients from each ROI fit
+        roi1_fitted = X_roi1 @ np.array([
+            results_roi1['Coefficients']['Ra'],
+            results_roi1['Coefficients']['K'],
+            results_roi1['Coefficients']['Th']
+        ])
+        roi2_fitted = X_roi2 @ np.array([
+            results_roi2['Coefficients']['Ra'],
+            results_roi2['Coefficients']['K'],
+            results_roi2['Coefficients']['Th']
+        ])
+        
+        # Store component contributions using INDEPENDENT coefficients from each ROI fit
+        # Use ORIGINAL matrix X (not masked) for full spectrum component coverage
+        roi1_components_data = {
+            'Ra': (X[:, 0] * results_roi1['Coefficients']['Ra']).tolist(),
+            'K': (X[:, 1] * results_roi1['Coefficients']['K']).tolist(),
+            'Th': (X[:, 2] * results_roi1['Coefficients']['Th']).tolist(),
+            'mask': mask_roi1.tolist()  # Store mask for ROI1 range
+        }
+        roi2_components_data = {
+            'Ra': (X[:, 0] * results_roi2['Coefficients']['Ra']).tolist(),
+            'K': (X[:, 1] * results_roi2['Coefficients']['K']).tolist(),
+            'Th': (X[:, 2] * results_roi2['Coefficients']['Th']).tolist(),
+            'mask': mask_roi2.tolist()  # Store mask for ROI2 range
+        }
+        
     else:
-        results_method = compile_results_dynamic(X, sample_rebinned, "NNLS", 
-                                      lambda X, y: nnls_detailed(X, y, num_bootstrap=100), component_names)
+        # Standard single regression
+        if regression_method == 'OLS':
+            results_method = compile_results_dynamic(X, sample_rebinned, "OLS", ols, component_names)
+        else:
+            results_method = compile_results_dynamic(X, sample_rebinned, "NNLS", 
+                                          lambda X, y: nnls_detailed(X, y, num_bootstrap=100), component_names)
+        
+        # Calculate fitted spectrum
+        fitted_spectrum = X @ np.array(list(results_method['Coefficients'].values()))
+        
+        # Initialize empty ROI data for non-ROI mode
+        roi1_fitted = []
+        roi2_fitted = []
+        roi1_components_data = {}
+        roi2_components_data = {}
     
-    # Save raw coefficients
+    # Save raw coefficients (now same as final - already in Bq)
     raw_coeffs = results_method['Coefficients'].copy()
     
-    # Calculate fitted spectrum
-    fitted_spectrum = X @ np.array(list(raw_coeffs.values()))
-    
-    # Convert to Bq
-    results_method['Coefficients']['Ra'] = results_method['Coefficients']['Ra'] / factor_ra
-    results_method['Coefficients']['K'] = results_method['Coefficients']['K'] / factor_k
-    results_method['Coefficients']['Th'] = results_method['Coefficients']['Th'] / factor_th
-    
-    results_method['Std Errors']['Ra'] = results_method['Std Errors']['Ra'] / factor_ra
-    results_method['Std Errors']['K'] = results_method['Std Errors']['K'] / factor_k
-    results_method['Std Errors']['Th'] = results_method['Std Errors']['Th'] / factor_th
+    # Note: Coefficients are already in Bq because calibration spectra 
+    # were normalized to CPS/Bq in data_loading.py
+    # No conversion needed here
     
     # Store results
     results = {
         'sample_name': sample_name,
-        'calibration': calib_df_uncut.to_dict('records'),
+        'calibration': calib_df.to_dict('records'),
         'sample_spectrum': sample_rebinned.tolist(),
-        'sample_spectrum_uncut': sample_spectrum_uncut.tolist(),
+        'sample_rebinned': sample_rebinned.tolist(),
         'bg_names': [],
         'fitted_spectrum': fitted_spectrum.tolist(),
         'raw_coeffs': raw_coeffs,
@@ -178,325 +579,20 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
         'regression_method': regression_method,
         'ref_calib': ref_calib,
         'sample_calib': sample_calib,
-        'cut_range_used': [cut_channel, cut_channel_right],
-        'calib_method': calib_method
+        'calib_method': calib_method,
+        'roi_info': {
+            'enabled': enable_roi,
+            'roi1_range': roi1_range if enable_roi else None,
+            'roi2_range': roi2_range if enable_roi else None,
+            'roi1_components': ['Ra', 'Th'] if enable_roi else [],
+            'roi2_components': ['K'] if enable_roi else [],
+            'roi1_fitted': roi1_fitted.tolist() if enable_roi else [],
+            'roi2_fitted': roi2_fitted.tolist() if enable_roi else [],
+            'roi1_components_data': roi1_components_data if enable_roi else {},
+            'roi2_components_data': roi2_components_data if enable_roi else {},
+            'roi1_results': results_roi1 if enable_roi else None,  # Store ROI1 coefficients
+            'roi2_results': results_roi2 if enable_roi else None   # Store ROI2 coefficients
+        }
     }
     
     return results, calib_method, opt_info, sample_calib
-
-
-def register_analysis_callbacks(app):
-    """Register main analysis callbacks"""
-    
-    # ==================== RESET BUTTON AFTER PLOT UPDATE ====================
-    @app.callback(
-        [Output('run-analysis', 'children'),
-         Output('run-analysis', 'color')],
-        Input('results-table', 'data'),
-        prevent_initial_call=True
-    )
-    def reset_button_after_plot(table_data):
-        """Reset button to original state after results table is updated"""
-        return [html.I(className="fas fa-play me-2"), "Analyzovat"], 'primary'
-    
-    # ==================== MAIN ANALYSIS ====================
-    @app.callback(
-        [Output('sample-results', 'data'),
-         Output('manual-a0', 'value', allow_duplicate=True),
-         Output('manual-a1', 'value', allow_duplicate=True),
-         Output('manual-a2', 'value', allow_duplicate=True),
-         Output('status-log', 'children', allow_duplicate=True),
-         Output('run-analysis', 'children', allow_duplicate=True),
-         Output('run-analysis', 'color', allow_duplicate=True)],
-        Input('run-analysis', 'n_clicks'),
-        [State('excel-data', 'data'),
-         State('sample-selector', 'value'),
-         State('ref-a0', 'value'),
-         State('ref-a1', 'value'),
-         State('ref-a2', 'value'),
-         State('current-sample-calib', 'data'),
-         State('cut-channel-range', 'value'),
-         State('polynomial-degree', 'value'),
-         State('optimize-calibration', 'value'),
-         State('optimization-method', 'value'),
-         State('max-iterations', 'value'),
-         State('regression-method', 'value')],
-        prevent_initial_call=True
-    )
-    def run_analysis(n_clicks, data, selected_sample, ref_a0, ref_a1, ref_a2,
-                     current_sample_calib, cut_range, poly_degree,
-                     optimize_value, opt_method, max_iter, regression_method):
-        """Run analysis for selected sample"""
-        if data is None or selected_sample is None:
-            raise PreventUpdate
-        
-        try:
-            # Reference calibration
-            ref_calib = [ref_a0, ref_a1, ref_a2]
-            
-            # Use shared analysis function
-            results, calib_method, opt_info, sample_calib = analyze_single_sample(
-                selected_sample, data, ref_calib, current_sample_calib,
-                cut_range, poly_degree, optimize_value, opt_method,
-                max_iter, regression_method
-            )
-            
-            print(f"\n=== Analysis completed for sample: {selected_sample} ===")
-            print(f"Calibration method: {calib_method}")
-            
-            # Build status message
-            status_lines = [
-                html.I(className="fas fa-check-circle text-success me-1"),
-                f"✅ Analýza dokončena: {selected_sample}",
-                html.Br(),
-                f"Kalibrace: {calib_method}",
-                html.Br(),
-                f"Metoda: {regression_method}"
-            ]
-            
-            if opt_info:
-                status_lines.extend([
-                    html.Br(),
-                    f"Opt: {opt_info}"
-                ])
-            
-            status_msg = html.Div([
-                html.Small(status_lines, className="text-success")
-            ])
-            
-            # If optimization was used, return optimized values
-            is_optimizing = 'optimize' in optimize_value
-            if is_optimizing:
-                return results, sample_calib[0], sample_calib[1], sample_calib[2], status_msg, [html.I(className="fas fa-check me-2"), "Hotovo!"], 'success'
-            else:
-                return results, no_update, no_update, no_update, status_msg, [html.I(className="fas fa-check me-2"), "Hotovo!"], 'success'
-            
-        except Exception as e:
-            print(f"\n!!! ERROR in analysis: {str(e)} !!!")
-            import traceback
-            traceback.print_exc()
-            
-            error_msg = html.Div([
-                html.Small([
-                    html.I(className="fas fa-exclamation-triangle text-danger me-1"),
-                    f"❌ Chyba: {str(e)}"
-                ], className="text-danger")
-            ])
-            
-            return None, no_update, no_update, no_update, error_msg, [html.I(className="fas fa-times me-2"), "Chyba"], 'danger'
-    
-    
-    # ==================== BATCH PROCESSING - START ====================
-    @app.callback(
-        [Output('batch-queue', 'data'),
-         Output('batch-counter', 'data'),
-         Output('batch-progress', 'value'),
-         Output('batch-progress-label', 'children'),
-         Output('batch-progress-container', 'style', allow_duplicate=True),
-         Output('run-batch-analysis', 'disabled', allow_duplicate=True),
-         Output('run-analysis', 'disabled', allow_duplicate=True),
-         Output('status-log', 'children', allow_duplicate=True)],
-        Input('run-batch-analysis', 'n_clicks'),
-        State('excel-data', 'data'),
-        prevent_initial_call=True
-    )
-    def start_batch_processing(n_clicks, excel_data):
-        """Initialize batch queue and start processing"""
-        if excel_data is None:
-            raise PreventUpdate
-        
-        sample_names = excel_data['sample_names']
-        total_samples = len(sample_names)
-        
-        if total_samples == 0:
-            raise PreventUpdate
-        
-        print(f"\n=== BATCH START: {total_samples} samples ===")
-        
-        # Initialize queue with all samples (no trigger field)
-        batch_queue = {
-            'remaining': sample_names.copy(),
-            'current_index': 0,
-            'total': total_samples,
-            'processing': True,
-            'errors': []
-        }
-        
-        status_msg = html.Div([
-            html.Small([
-                html.I(className="fas fa-cog fa-spin text-primary me-1"),
-                f"🔄 Spouštím dávkové zpracování {total_samples} vzorků..."
-            ], className="text-primary")
-        ])
-        
-        # Show progress bar at 0%, disable buttons, counter=1 triggers worker
-        return batch_queue, 1, 0, f"0% (0/{total_samples})", {'display': 'block'}, True, True, status_msg
-    
-    
-    # ==================== BATCH PROCESSING - WORKER ====================
-    @app.callback(
-        [Output('batch-queue', 'data', allow_duplicate=True),
-         Output('batch-counter', 'data', allow_duplicate=True),
-         Output('accumulated-results', 'data', allow_duplicate=True),
-         Output('sample-results', 'data', allow_duplicate=True),
-         Output('batch-progress-container', 'style', allow_duplicate=True),
-         Output('run-batch-analysis', 'disabled', allow_duplicate=True),
-         Output('run-analysis', 'disabled', allow_duplicate=True),
-         Output('status-log', 'children', allow_duplicate=True)],
-        Input('batch-counter', 'data'),
-        [State('batch-queue', 'data'),
-         State('accumulated-results', 'data'),
-         State('excel-data', 'data'),
-         State('ref-a0', 'value'),
-         State('ref-a1', 'value'),
-         State('ref-a2', 'value'),
-         State('current-sample-calib', 'data'),
-         State('cut-channel-range', 'value'),
-         State('polynomial-degree', 'value'),
-         State('optimize-calibration', 'value'),
-         State('optimization-method', 'value'),
-         State('max-iterations', 'value'),
-         State('regression-method', 'value')],
-        prevent_initial_call=True
-    )
-    def process_next_sample(counter, batch_queue, accumulated_results, excel_data, 
-                           ref_a0, ref_a1, ref_a2, current_sample_calib,
-                           cut_range, poly_degree, optimize_value, opt_method, 
-                           max_iter, regression_method):
-        """Process one sample from queue and update results"""
-        
-        # Check if counter and queue are valid
-        if counter is None or not batch_queue or not batch_queue.get('processing'):
-            raise PreventUpdate
-        
-        print(f"\n=== PROCESS_NEXT_SAMPLE CALLED (counter={counter}) ===")
-        print(f"batch_queue: {batch_queue}")
-        
-        remaining = batch_queue['remaining']
-        print(f"  -> Remaining samples: {len(remaining)} - {remaining}")
-        
-        # Check if queue is empty - finalize
-        if not remaining:
-            total = batch_queue['total']
-            success_count = total - len(batch_queue.get('errors', []))
-            error_count = len(batch_queue.get('errors', []))
-            
-            status_msg = html.Div([
-                html.Small([
-                    html.I(className="fas fa-check-circle text-success me-1"),
-                    f"✅ Dávkové zpracování dokončeno: {success_count}/{total} vzorků úspěšně"
-                ], className="text-success" if error_count == 0 else "text-warning"),
-                html.Br() if error_count > 0 else None,
-                html.Small([
-                    html.I(className="fas fa-exclamation-triangle text-warning me-1"),
-                    f"⚠️ {error_count} vzorků selhalo"
-                ], className="text-warning") if error_count > 0 else None
-            ])
-            
-            print(f"\n=== BATCH COMPLETE: {success_count}/{total} successful ===")
-            
-            # Mark as not processing, hide progress bar, re-enable buttons, DON'T update counter (stops recursion)
-            batch_queue['processing'] = False
-            return (batch_queue, no_update, no_update, no_update, 
-                    {'display': 'none'}, False, False, status_msg)
-        
-        # Get next sample to process
-        sample_name = remaining[0]
-        current_idx = batch_queue['current_index']
-        total = batch_queue['total']
-        
-        print(f"\n[{current_idx + 1}/{total}] Processing: {sample_name}")
-        
-        try:
-            # Analyze this sample
-            results, calib_method, opt_info, sample_calib = analyze_single_sample(
-                sample_name, excel_data, 
-                [ref_a0, ref_a1, ref_a2],
-                current_sample_calib, cut_range, poly_degree,
-                optimize_value, opt_method, max_iter, regression_method
-            )
-            
-            if results:
-                # Add to accumulated results
-                if accumulated_results is None:
-                    accumulated_results = []
-                accumulated_results.append(results)
-                
-                # Extract for logging
-                res = results['results']
-                coeff = res['Coefficients']
-                
-                status_msg = html.Div([
-                    html.Small([
-                        html.I(className="fas fa-check text-success me-1"),
-                        f"✓ [{current_idx + 1}/{total}] {sample_name}: Ra={coeff['Ra']:.3f}, K={coeff['K']:.3f}, Th={coeff['Th']:.3f} Bq"
-                    ], className="text-success")
-                ])
-                
-                print(f"✓ [{current_idx + 1}/{total}] {sample_name}: Ra={coeff['Ra']:.3f}, K={coeff['K']:.3f}, Th={coeff['Th']:.3f} Bq")
-            else:
-                batch_queue['errors'].append(sample_name)
-                results = None
-                status_msg = html.Div([
-                    html.Small([
-                        html.I(className="fas fa-exclamation-triangle text-warning me-1"),
-                        f"⚠ [{current_idx + 1}/{total}] {sample_name}: CHYBA při analýze"
-                    ], className="text-warning")
-                ])
-                print(f"✗ [{current_idx + 1}/{total}] {sample_name}: CHYBA")
-                
-        except Exception as e:
-            batch_queue['errors'].append(sample_name)
-            results = None
-            status_msg = html.Div([
-                html.Small([
-                    html.I(className="fas fa-exclamation-triangle text-warning me-1"),
-                    f"⚠ [{current_idx + 1}/{total}] {sample_name}: {str(e)[:50]}"
-                ], className="text-warning")
-            ])
-            print(f"✗ [{current_idx + 1}/{total}] {sample_name}: CHYBA - {str(e)}")
-        
-        # Update queue - remove processed sample
-        new_queue = {
-            'remaining': remaining[1:],  # Remove first item
-            'current_index': current_idx + 1,
-            'total': total,
-            'processing': True,
-            'errors': batch_queue['errors']
-        }
-        
-        print(f"  -> Returning new queue with {len(new_queue['remaining'])} remaining samples")
-        print(f"  -> New queue: {new_queue}")
-        print(f"  -> Incrementing counter: {counter} -> {counter + 1}")
-        
-        # Return updated queue, incremented counter (triggers recursion), updated results
-        return new_queue, counter + 1, accumulated_results, results, no_update, no_update, no_update, status_msg
-    
-    
-    # ==================== BATCH PROCESSING - PROGRESS & FINALIZATION ====================
-    @app.callback(
-        [Output('batch-progress', 'value', allow_duplicate=True),
-         Output('batch-progress-label', 'children', allow_duplicate=True)],
-        Input('batch-queue', 'data'),
-        prevent_initial_call=True
-    )
-    def update_batch_progress(batch_queue):
-        """Update progress bar during batch processing"""
-        
-        if not batch_queue or not batch_queue.get('processing'):
-            raise PreventUpdate
-        
-        total = batch_queue['total']
-        remaining_count = len(batch_queue['remaining'])
-        processed = total - remaining_count
-        
-        # Calculate progress
-        if total > 0:
-            progress = int((processed / total) * 100)
-        else:
-            progress = 0
-        
-        # Update progress bar
-        return progress, f"{progress}% ({processed}/{total})"
-
-

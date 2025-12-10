@@ -2,7 +2,7 @@
 Shared utilities and constants for callbacks
 """
 
-from dash import Input, Output, State, html, no_update, dcc
+from dash import Input, Output, State, html, no_update, dcc, callback_context
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -24,13 +24,15 @@ from processing import (
 
 
 # Constants
-CALIBRATION_ENERGIES = [238, 295, 352, 609, 1461]
+CALIBRATION_ENERGIES = [238, 295, 352, 609, 1461, 1764.494, 2614.511]
 ENERGY_MAP = {
     'select-e-238': '238',
     'select-e-295': '295',
     'select-e-352': '352',
     'select-e-609': '609',
-    'select-e-1461': '1461'
+    'select-e-1461': '1461',
+    'select-e-1764': '1764',
+    'select-e-2614': '2614'
 }
 
 

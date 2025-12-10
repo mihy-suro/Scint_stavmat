@@ -16,19 +16,15 @@ def create_layout():
         dcc.Store(id='excel-data'),
         dcc.Store(id='sample-results'),
         dcc.Store(id='peak-calibration-data'),
-        dcc.Store(id='accumulated-results', data=[]),  # Accumulated results for batch
-        dcc.Store(id='batch-queue', data={'remaining': [], 'current_index': 0, 'total': 0, 'processing': False}),  # Batch processing queue
-        dcc.Store(id='batch-trigger', data=0),  # Trigger to process next sample (increments)
-        dcc.Store(id='batch-counter', data=0),  # Atomic counter for batch recursion
+        dcc.Store(id='accumulated-results', data=[]),  # Accumulated results for sequential analysis
         dcc.Store(id='loading-state', data=False),
         dcc.Download(id='download-results'),  # Results export
         
         # Header
         dbc.Row([
             dbc.Col([
-                html.H2("☢️ Analýza scintilačních spekter", className="text-center mt-3 mb-2"),
-                html.P("Sekvenční dekonvoluce gamma spekter - CeBr₃ & NaI(Tl)", 
-                       className="text-center text-muted mb-4"),
+                html.H3("☢️ Analýza scintilačních spekter CeBr₃ & NaI(Tl)", 
+                       className="text-center mt-3 mb-3"),
             ])
         ]),
         
@@ -187,6 +183,16 @@ def create_layout():
                                                       className="w-100", style={'textAlign': 'left'})),
                                     html.Td(html.Span(id='peak-ch-1461', children="-", className="ms-2"))
                                 ], id='row-1461'),
+                                html.Tr([
+                                    html.Td(dbc.Button("1764", id='select-e-1764', size="sm", color="light",
+                                                      className="w-100", style={'textAlign': 'left'})),
+                                    html.Td(html.Span(id='peak-ch-1764', children="-", className="ms-2"))
+                                ], id='row-1764'),
+                                html.Tr([
+                                    html.Td(dbc.Button("2614", id='select-e-2614', size="sm", color="light",
+                                                      className="w-100", style={'textAlign': 'left'})),
+                                    html.Td(html.Span(id='peak-ch-2614', children="-", className="ms-2"))
+                                ], id='row-2614'),
                             ])
                         ], size="sm", bordered=True, className="mb-2"),
                         
@@ -200,121 +206,206 @@ def create_layout():
                         ),
                     ])
                 ], className="mb-3"),
+                
+                # Calibration plot (collapsible)
+                dbc.Card([
+                    dbc.CardHeader([
+                        dbc.Button(
+                            [html.I(className="fas fa-chart-line me-2"), "Kalibrační křivka"],
+                            id='calibration-plot-toggle',
+                            color='link',
+                            size='sm',
+                            className='p-0 text-decoration-none w-100 text-start'
+                        )
+                    ], className="py-1"),
+                    dbc.Collapse([
+                        dbc.CardBody([
+                            dcc.Graph(id='calibration-fit-plot', config={'displayModeBar': False}, style={'height': '300px'})
+                        ], className="p-2")
+                    ], id='calibration-plot-collapse', is_open=False)
+                ], className="mb-3"),
             ], width=2),
             
             # Middle panel - graphs
             dbc.Col([
-                # Graph
+                # Full spectrum (top)
                 dbc.Card([
-                    dbc.CardHeader("📊 Spektrum a fit"),
+                    dbc.CardHeader(id='spectrum-plot-full-header', children="📊 Celé spektrum"),
                     dbc.CardBody([
                         dcc.Loading(
-                            id="loading-graph",
+                            id="loading-graph-full",
                             type="default",
-                            children=dcc.Graph(id='spectrum-plot', style={'height': '450px'})
+                            children=dcc.Graph(id='spectrum-plot-full', style={'height': '300px'})
                         )
                     ])
                 ], className="mb-3"),
                 
-                # Residuals plot (hidden initially)
-                dbc.Card([
-                    dbc.CardHeader("📉 Residua (Naměřeno - Fit)"),
-                    dbc.CardBody([
-                        dcc.Graph(id='residuals-plot', style={'height': '250px'})
-                    ])
-                ], className="mb-3", id='residuals-card', style={'display': 'none'}),
-                
-                # Calibration plot
-                dbc.Card([
-                    dbc.CardHeader("📈 Kalibrace: Kanál → Energie"),
-                    dbc.CardBody([
-                        dcc.Graph(id='calibration-fit-plot', style={'height': '300px'})
-                    ])
+                # ROI plots (side by side)
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader([
+                                "Ra/Th ROI",
+                                dbc.Checklist(
+                                    options=[{"label": "Použít K fit", "value": 1}],
+                                    value=[1],
+                                    id='use-k-from-roi1',
+                                    inline=True,
+                                    switch=True,
+                                    className='float-end',
+                                    style={'fontSize': '12px', 'marginTop': '2px'}
+                                )
+                            ]),
+                            dbc.CardBody([
+                                dcc.Graph(id='spectrum-plot-roi1', style={'height': '300px'}),
+                                dcc.Graph(id='residuals-plot-roi1', style={'height': '120px'})
+                            ])
+                        ])
+                    ], width=6),
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader([
+                                "K ROI",
+                                dbc.Checklist(
+                                    options=[{"label": "Použít K fit", "value": 1}],
+                                    value=[],
+                                    id='use-k-from-roi2',
+                                    inline=True,
+                                    switch=True,
+                                    className='float-end',
+                                    style={'fontSize': '12px', 'marginTop': '2px'}
+                                )
+                            ]),
+                            dbc.CardBody([
+                                dcc.Graph(id='spectrum-plot-roi2', style={'height': '300px'}),
+                                dcc.Graph(id='residuals-plot-roi2', style={'height': '120px'})
+                            ])
+                        ])  
+                    ], width=6),
                 ], className="mb-3"),
+                
+                # Status window
+                dbc.Card([
+                    dbc.CardHeader("📢 Status"),
+                    dbc.CardBody([
+                        html.Div(id='status-log', children=[
+                            html.Small("Připraveno...", className="text-muted")
+                        ], style={
+                            'height': '80px',
+                            'overflowY': 'auto',
+                            'fontSize': '12px',
+                            'backgroundColor': '#f8f9fa',
+                            'padding': '8px',
+                            'borderRadius': '4px'
+                        })
+                    ], className="p-2")
+                ]),
             ], width=7),
             
             # Right panel - analysis controls, results and status
             dbc.Col([
                 # Analysis controls
                 dbc.Card([
-                    dbc.CardHeader("🎯 Analýza"),
+                    dbc.CardHeader("🎯 Optimalizace energetické kalibrace"),
                     dbc.CardBody([
-                        # Spectrum range selection
-                        html.Label("Rozsah spektra (kanály):", className="fw-bold small mb-2"),
-                        dcc.RangeSlider(
-                            id='cut-channel-range',
-                            min=0,
-                            max=2048,
-                            step=10,
-                            value=[0, 2048],
-                            marks={
-                                0: '0',
-                                500: '500',
-                                1000: '1000',
-                                1500: '1500',
-                                2048: '2048'
-                            },
-                            tooltip={"placement": "bottom", "always_visible": True},
-                            allowCross=False,
-                            className="mb-3"
-                        ),
+                        # Optimization and regression on one row
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Checklist(
+                                    id='optimize-calibration',
+                                    options=[{"label": " Optimalizovat", "value": "optimize"}],
+                                    value=["optimize"],
+                                    switch=True,
+                                )
+                            ], width=4),
+                            dbc.Col([
+                                dcc.Dropdown(
+                                    id='regression-method',
+                                    options=[
+                                        {"label": "OLS", "value": "OLS"},
+                                        {"label": "NNLS", "value": "NNLS"},
+                                    ],
+                                    value="OLS",
+                                    clearable=False,
+                                    placeholder="Regrese",
+                                    style={'fontSize': '13px'}
+                                )
+                            ], width=4),
+                            dbc.Col([
+                                dcc.Dropdown(
+                                    id='optimization-method',
+                                    options=[
+                                        {'label': 'L-BFGS-B', 'value': 'L-BFGS-B'},
+                                        {'label': 'Powell', 'value': 'Powell'},
+                                        {'label': 'Nelder-Mead', 'value': 'Nelder-Mead'},
+                                    ],
+                                    value='L-BFGS-B',
+                                    clearable=False,
+                                    placeholder="Optimalizace",
+                                    style={'fontSize': '13px'}
+                                )
+                            ], width=4),
+                        ], className="mb-2"),
                         
-                        html.Hr(className="my-2"),
+                        # Hidden max-iterations field (value from config)
+                        dbc.Input(id='max-iterations', type='hidden', value=1000),
                         
-                        # Optimization toggle
-                        dbc.Checklist(
-                            id='optimize-calibration',
-                            options=[{"label": " Optimalizovat", "value": "optimize"}],
-                            value=["optimize"],
-                            switch=True,
-                            className="mb-2"
-                        ),
+                        # Dual ROI analysis card
+                        dbc.Card([
+                            dbc.CardHeader("🎯 Definice ROI"),
+                            dbc.CardBody([
+                                # Region 1: Ra/Th - RangeSlider
+                                html.Label("Ra/Th ROI:", className="fw-bold small mb-1"),
+                                dcc.RangeSlider(
+                                    id='roi1-range-slider',
+                                    min=0,
+                                    max=3000,
+                                    step=10,
+                                    value=[0, 1200],
+                                    marks={
+                                        0: '0',
+                                        500: '500',
+                                        1000: '1000',
+                                        1500: '1500',
+                                        2000: '2000',
+                                        2500: '2500',
+                                        3000: '3000'
+                                    },
+                                    tooltip={"placement": "bottom", "always_visible": True},
+                                    allowCross=False,
+                                    className="mb-3"
+                                ),
+                                
+                                # Region 2: K-40 - RangeSlider
+                                html.Label("K ROI:", className="fw-bold small mb-1"),
+                                dcc.RangeSlider(
+                                    id='roi2-range-slider',
+                                    min=0,
+                                    max=3000,
+                                    step=10,
+                                    value=[1400, 1520],
+                                    marks={
+                                        0: '0',
+                                        500: '500',
+                                        1000: '1000',
+                                        1500: '1500',
+                                        2000: '2000',
+                                        2500: '2500',
+                                        3000: '3000'
+                                    },
+                                    tooltip={"placement": "bottom", "always_visible": True},
+                                    allowCross=False,
+                                    className="mb-2"
+                                ),
+                            ], className="p-2")
+                        ], className="mb-3", color="info", outline=True),
                         
-                        # Optimization settings (collapsible)
-                        dbc.Collapse([
-                            dbc.Card([
-                                dbc.CardBody([
-                                    html.Label("Metoda:", className="fw-bold small mb-1"),
-                                    dcc.Dropdown(
-                                        id='optimization-method',
-                                        options=[
-                                            {'label': 'L-BFGS-B (doporučeno)', 'value': 'L-BFGS-B'},
-                                            {'label': 'Powell', 'value': 'Powell'},
-                                            {'label': 'Nelder-Mead', 'value': 'Nelder-Mead'},
-                                        ],
-                                        value='L-BFGS-B',
-                                        clearable=False,
-                                        className="mb-2"
-                                    ),
-                                    
-                                    html.Label("Max. iterací:", className="fw-bold small mb-1"),
-                                    dbc.Input(
-                                        id='max-iterations',
-                                        type='number',
-                                        min=50,
-                                        max=5000,
-                                        step=50,
-                                        value=1000,
-                                        size='sm',
-                                        className="mb-2"
-                                    ),
-                                ], className="p-2")
-                            ], className="mb-2", color="light", outline=True)
-                        ], id='optimization-settings-collapse', is_open=False),
+                        # Hidden stores for ROI ranges
+                        dcc.Store(id='roi1-range', data=[0, 1200]),
+                        dcc.Store(id='roi2-range', data=[1400, 1520]),
                         
-                        html.Hr(),
-                        
-                        # Regression method selection
-                        html.Label("Regresní metoda:", className="fw-bold mt-2 small"),
-                        dbc.RadioItems(
-                            id='regression-method',
-                            options=[
-                                {"label": " OLS (Ordinary Least Squares)", "value": "OLS"},
-                                {"label": " NNLS (Non-Negative Least Squares)", "value": "NNLS"},
-                            ],
-                            value="OLS",
-                            className="mb-3 small"
-                        ),
+                        # Store for K source selection (roi1 or roi2)
+                        dcc.Store(id='k-source-roi', data='roi1'),  # Default: use K from Ra/Th ROI
                         
                         # Analyze button with loading
                         dcc.Loading(
@@ -333,74 +424,55 @@ def create_layout():
                             parent_className='w-100'
                         ),
                         
-                        # Batch processing button
-                        dbc.Button(
-                            [html.I(className="fas fa-layer-group me-2"), "Analyzovat vše (dávka)"],
-                            id='run-batch-analysis',
-                            color='info',
-                            size='sm',
-                            className='w-100 mt-2',
-                            disabled=True,
-                            outline=True
-                        ),
-                    ])
-                ], className="mb-3"),
-                
-                # Results table
-                dbc.Card([
-                    dbc.CardHeader([
-                        html.Span("📊 Výsledky"),
-                        dbc.Button(
-                            html.I(className="fas fa-download"),
-                            id='export-csv',
-                            color='success',
-                            size='sm',
-                            className='float-end',
-                            title='Export CSV'
-                        ),
-                    ]),
-                    dbc.CardBody([
-                        dash_table.DataTable(
-                            id='results-table',
-                            columns=[],
-                            data=[],
-                            style_table={'overflowX': 'auto'},
-                            style_cell={'textAlign': 'center', 'padding': '8px', 'fontSize': '13px'},
-                            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold', 'fontSize': '12px'},
-                            style_data_conditional=[
-                                {
-                                    'if': {'column_id': 'Radionuklid'},
-                                    'fontWeight': 'bold',
-                                    'textAlign': 'left'
-                                }
-                            ]
-                        ),
-                        
-                        # Confirm result button
-                        html.Hr(className="my-3"),
-                        dbc.Button(
-                            [html.I(className="fas fa-check-circle me-2"), "Potvrdit výsledek"],
-                            id='confirm-result-button',
-                            color='primary',
-                            size='sm',
-                            className="w-100",
-                            disabled=True
-                        ),
+                        # Navigation buttons
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Button(
+                                    [html.I(className="fas fa-backward me-2"), "Předchozí"],
+                                    id='previous-sample-button',
+                                    color='info',
+                                    size='sm',
+                                    className='w-100',
+                                    disabled=True,
+                                    outline=True
+                                ),
+                            ], width=6),
+                            dbc.Col([
+                                dbc.Button(
+                                    [html.I(className="fas fa-forward me-2"), "Další"],
+                                    id='next-sample-button',
+                                    color='info',
+                                    size='sm',
+                                    className='w-100',
+                                    disabled=True,
+                                    outline=True
+                                ),
+                            ], width=6),
+                        ], className='mt-2'),
                     ])
                 ], className="mb-3"),
                 
                 # Accumulated results table
                 dbc.Card([
                     dbc.CardHeader([
-                        "📊 Kumulativní výsledky",
-                        dbc.Button(
-                            html.I(className="fas fa-download"),
-                            id='export-results',
-                            color='success',
-                            size='sm',
-                            className='float-end',
-                            title='Export výsledků'
-                        ),
+                        "📊 Výsledky",
+                        dbc.ButtonGroup([
+                            dbc.Button(
+                                html.I(className="fas fa-trash"),
+                                id='delete-selected-rows',
+                                color='danger',
+                                size='sm',
+                                title='Smazat vybrané řádky',
+                                className='me-1'
+                            ),
+                            dbc.Button(
+                                html.I(className="fas fa-download"),
+                                id='export-results',
+                                color='success',
+                                size='sm',
+                                title='Export výsledků'
+                            ),
+                        ], className='float-end'),
                     ]),
                     dbc.CardBody([
                         dash_table.DataTable(
@@ -413,10 +485,12 @@ def create_layout():
                                 {'name': 'K σ (Bq)', 'id': 'K_err'},
                                 {'name': 'Th (Bq)', 'id': 'Th'},
                                 {'name': 'Th σ (Bq)', 'id': 'Th_err'},
-                                {'name': 'R²', 'id': 'R2'},
-                                {'name': 'Metoda', 'id': 'method'},
+                                {'name': 'Index', 'id': 'Index'},
+                                {'name': 'Index σ', 'id': 'Index_err'},
                             ],
                             data=[],
+                            row_selectable='multi',
+                            selected_rows=[],
                             style_table={'overflowX': 'auto'},
                             style_cell={'textAlign': 'center', 'padding': '6px', 'fontSize': '11px'},
                             style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold', 'fontSize': '11px'},
@@ -431,36 +505,6 @@ def create_layout():
                         ),
                     ])
                 ], className="mb-3"),
-                
-                # Status window
-                dbc.Card([
-                    dbc.CardHeader("📢 Status"),
-                    dbc.CardBody([
-                        # Progress bar for batch processing
-                        html.Div([
-                            html.Small(id='batch-progress-label', children="", className="text-muted mb-1"),
-                            dbc.Progress(
-                                id='batch-progress',
-                                value=0,
-                                striped=True,
-                                animated=True,
-                                className="mb-2",
-                                style={'height': '25px'}
-                            ),
-                        ], id='batch-progress-container', style={'display': 'none'}),
-                        
-                        html.Div(id='status-log', children=[
-                            html.Small("Připraveno...", className="text-muted")
-                        ], style={
-                            'height': '120px',
-                            'overflowY': 'auto',
-                            'fontSize': '12px',
-                            'backgroundColor': '#f8f9fa',
-                            'padding': '8px',
-                            'borderRadius': '4px'
-                        })
-                    ])
-                ]),
             ], width=3),
         ]),
         

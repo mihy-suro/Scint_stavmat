@@ -46,7 +46,7 @@ def rebin_spectrum(ref_calib, true_calib, counts):
     
     return rebinned_spectrum
 
-def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, bounds, method="L-BFGS-B", maxiter=1000):
+def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, bounds, method="L-BFGS-B", maxiter=1000, roi_mask=None):
     """Find optimal calibration coefficients for the sample spectrum to maximize R^2.
     
     Args:
@@ -57,6 +57,7 @@ def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, 
         bounds: Bounds for optimization
         method: Optimization method
         maxiter: Maximum iterations
+        roi_mask: Optional boolean mask for ROI region (if None, uses full spectrum)
     
     Returns:
         tuple: (optimized_coefficients, result_dict)
@@ -65,12 +66,22 @@ def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, 
     
     def objective(true_calib):
         rebinned_spectrum = rebin_spectrum(ref_calib, true_calib, sample_spectrum)
+        
+        # Apply ROI mask if provided
+        if roi_mask is not None:
+            X_masked = X[roi_mask]
+            y_masked = rebinned_spectrum[roi_mask]
+        else:
+            X_masked = X
+            y_masked = rebinned_spectrum
+        
         model = LinearRegression(fit_intercept=False)
-        model.fit(X, rebinned_spectrum)
-        r2_score = model.score(X, rebinned_spectrum)
+        model.fit(X_masked, y_masked)
+        r2_score = model.score(X_masked, y_masked)
         
         iteration_count[0] += 1
-        print(f"Current coefficients: {true_calib}, Current R^2: {r2_score}")
+        roi_info = f" (ROI)" if roi_mask is not None else ""
+        print(f"Current coefficients: {true_calib}, Current R^2{roi_info}: {r2_score}")
         
         return -r2_score  # Minimize negative R^2
 
