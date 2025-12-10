@@ -1,0 +1,71 @@
+# Konfigurace detektorů pro gamma spektroskopii - CHANNEL-CENTRIC VERSION
+# Verze 2.0: Používá kanálové indexy pro ROI a channel mapping pro kalibraci
+
+CeBr3:
+  # Channel mapping pro rebinning (ch_ref = a0 + a1 * ch_sample)
+  channel_mapping:
+    ref_a0: 0.0           # Identity mapping - žádný offset
+    ref_a1: 1.0           # Identity mapping - gain 1:1
+  
+  # Energetická kalibrace POUZE pro zobrazení (osy, tooltips)
+  display_calibration:
+    a0: 9.6229            # Intercept [keV] - jen pro display
+    a1: 1.3793            # Slope [keV/kanál] - jen pro display
+    a2: 0.0               # Kvadratický člen [keV/kanál²] - jen pro display
+  
+  standard_activities:
+    Ra: 1001.4            # Aktivita Ra-226 etalonu [Bq]
+    K: 11505           # Aktivita K-40 etalonu [Bq]
+    Th: 1020.0            # Aktivita Th-232 etalonu [Bq]
+  
+  # ROI ranges v KANÁLECH (ne keV!)
+  # Vypočteno: ch = (keV - a0) / a1
+  roi_ranges:
+    roi1: [138, 573]      # Ra/Th region (~200-800 keV)
+    roi2: [504, 1182]     # K-40 region (~700-1640 keV)
+  
+  roi_ranges:
+    roi1: [138, 573]      # Ra/Th region (~200-800 keV)
+    roi2: [504, 1182]     # K-40 region (~700-1640 keV)
+  
+  processing:
+    cut_channel_left: 0   # Levý cutoff kanál (pod tímto se data vynulují)
+    cut_channel_right: 2048  # Pravý cutoff kanál
+  
+  calibration_spectra:
+    Ra: "data/calibration/Ra_CeBr.SPE"   # Ra-226 kalibrační spektrum
+    K: "data/calibration/K_CeBr.SPE"     # K-40 kalibrační spektrum
+    Th: "data/calibration/Th_CeBr.SPE"   # Th-232 kalibrační spektrum
+    BG: "data/calibration/BG_CeBr.SPE"   # Pozadí detektoru
+
+NaI(Tl):
+  # Channel mapping pro rebinning
+  channel_mapping:
+    ref_a0: 0.0
+    ref_a1: 1.0
+  
+  # Energetická kalibrace POUZE pro zobrazení
+  display_calibration:
+    a0: 9.6229            # TODO: Změřit správné hodnoty pro NaI(Tl)
+    a1: 1.3793
+    a2: 0.0
+  
+  standard_activities:
+    Ra: 1001.4            # TODO: Ověřit aktivity etalonů pro NaI(Tl)
+    K: 21330.0
+    Th: 1020.0
+  
+  # ROI ranges v KANÁLECH
+  roi_ranges:
+    roi1: [138, 2024]     # Ra/Th region (~200-2800 keV)
+    roi2: [504, 1182]     # K-40 region (~700-1640 keV)
+  
+  processing:
+    cut_channel_left: 0
+    cut_channel_right: 2048
+  
+  calibration_spectra:
+    Ra: "data/calibration/Ra_NaI.SPE"
+    K: "data/calibration/K_NaI.SPE"
+    Th: "data/calibration/Th_NaI.SPE"
+    BG: "data/calibration/BG_NaI.SPE"    # Pozadí detektoru

@@ -82,25 +82,19 @@ def register_calibration_callbacks(app):
         
         # Handle graph click - assign channel to active energy
         if trigger_id == 'spectrum-plot-full' and click_data and calib_data.get('active_energy'):
-            # Get energy from clicked point (x is always in keV)
-            energy_clicked = click_data['points'][0]['x']
+            # CHANNEL-CENTRIC: X is now channel (not energy)
+            channel_clicked = int(click_data['points'][0]['x'])
             
-            # Convert energy to channel using current sample calibration
-            if current_sample_calib:
-                calib_coeffs = [
-                    current_sample_calib.get('a0', 9.6229),
-                    current_sample_calib.get('a1', 1.3793),
-                    current_sample_calib.get('a2', 0)
-                ]
-                channel = convert_energy_to_channel(energy_clicked, calib_coeffs)
+            # Get approximate energy from customdata for display
+            if 'customdata' in click_data['points'][0]:
+                energy_approx = click_data['points'][0]['customdata']
             else:
-                # Fallback: use default linear conversion
-                channel = int((energy_clicked - 9.6229) / 1.3793)
+                energy_approx = 0  # Fallback
             
             energy = calib_data['active_energy']
-            calib_data['peaks'][energy] = channel
+            calib_data['peaks'][energy] = channel_clicked
             
-            print(f"✓ {energy} keV → Channel {channel} (clicked at {energy_clicked:.1f} keV)")
+            print(f"✓ {energy} keV → Channel {channel_clicked} (approx. {energy_approx:.1f} keV)")
             
             # Mark current energy as success (green)
             current_idx = energy_list.index(energy)

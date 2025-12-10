@@ -7,10 +7,26 @@ from scipy.optimize import nnls, minimize, dual_annealing
 from scipy.stats import norm
 import statsmodels.api as sm
 
-# Rebinning functions
+# Energy calculation (DISPLAY ONLY - not for computation!)
+def calculate_display_energy(channel, display_calib):
+    """Calculate energy from channel for DISPLAY purposes only.
+    
+    WARNING: Use this ONLY for axis labels, tooltips, and user info.
+    Do NOT use in computational pipelines (rebinning, ROI masking, etc.).
+    
+    Args:
+        channel: Channel number(s) - int, float, or array
+        display_calib: [a0, a1, a2] energy calibration coefficients
+    
+    Returns:
+        Energy in keV
+    """
+    return sum(c * channel**i for i, c in enumerate(display_calib))
+
+# Legacy alias for backward compatibility
 def calculate_energy(channel, calib_coeffs):
-    """Calculate energy from channel using polynomial calibration coefficients."""
-    return sum(c * channel**i for i, c in enumerate(calib_coeffs))
+    """DEPRECATED: Use calculate_display_energy() instead."""
+    return calculate_display_energy(channel, calib_coeffs)
 
 def rebin_spectrum(ref_calib, true_calib, counts):
     """Rebin a spectrum using reference and true calibration coefficients.
@@ -57,6 +73,154 @@ def rebin_spectrum(ref_calib, true_calib, counts):
         rebinned_spectrum[i] = np.trapz(density_interp, Etrap)
     
     return rebinned_spectrum
+
+def rebin_channels(mapping, sample_counts, n_ref_channels=2048):
+    """Rebin spectrum from sample channel indexing to reference channel indexing.
+    
+    This is the CHANNEL-CENTRIC version of rebinning. Uses channel-to-channel
+    mapping instead of energy calibrations.
+    
+    Args:
+        mapping: [a0, a1] where ch_ref = a0 + a1 * ch_sample
+        sample_counts: Sample spectrum counts (array)
+        n_ref_channels: Number of channels in reference grid (default 2048)
+    
+    Returns:
+        rebinned_counts: Spectrum rebinned to reference channel indices
+    
+    Algorithm:
+        For each reference channel i:
+            1. Calculate corresponding sample channel: ch_s = (i - a0) / a1
+            2. If ch_s out of bounds: rebinned[i] = 0
+            3. If ch_s is integer: rebinned[i] = sample[ch_s]
+            4. If ch_s is fractional: linear interpolation
+        
+        Conservation: sum(rebinned) ≈ sum(sample) within 1%
+    """
+    a0, a1 = mapping[0], mapping[1]
+    n_sample = len(sample_counts)
+    
+    rebinned = np.zeros(n_ref_channels, dtype=np.float64)
+    
+    for i in range(n_ref_channels):
+        # Inverse mapping: find sample channel for this ref channel
+        ch_sample = (i - a0) / a1
+        
+        # Out of bounds check
+        if ch_sample < 0 or ch_sample >= n_sample:
+            rebinned[i] = 0
+            continue
+        
+        # Integer channel - direct copy
+        if abs(ch_sample - round(ch_sample)) < 1e-10:
+            ch_int = int(round(ch_sample))
+            if 0 <= ch_int < n_sample:
+                rebinned[i] = sample_counts[ch_int]
+        else:
+            # Fractional channel - linear interpolation
+            ch_floor = int(np.floor(ch_sample))
+            ch_ceil = int(np.ceil(ch_sample))
+            
+            if ch_ceil >= n_sample:
+                ch_ceil = n_sample - 1
+            
+            if ch_floor < 0:
+                ch_floor = 0
+            
+            frac = ch_sample - ch_floor
+            rebinned[i] = (1 - frac) * sample_counts[ch_floor] + frac * sample_counts[ch_ceil]
+    
+    return rebinned
+
+def find_optimal_channel_mapping(X_ref, sample_counts, initial_mapping, roi_channels=None, method="L-BFGS-B", maxiter=1000):
+    """Find optimal channel-to-channel mapping to maximize R².
+    
+    This is the CHANNEL-CENTRIC version of calibration optimization.
+    Finds [a0, a1] mapping instead of energy calibration coefficients.
+    
+    Args:
+        X_ref: Calibration matrix [N_ref × 3] on reference channels
+        sample_counts: Sample spectrum [N_sample] on sample channels
+        initial_mapping: [a0, a1] initial guess for ch_ref = a0 + a1*ch_sample
+        roi_channels: [ch_min, ch_max] or None (if None, uses full spectrum)
+        method: Optimization method (L-BFGS-B, Powell, Nelder-Mead)
+        maxiter: Maximum iterations
+    
+    Returns:
+        optimal_mapping: [a0, a1]
+        result_dict: {'success', 'iterations', 'final_r2', 'method', 'converged'}
+    """
+    iteration_count = [0]
+    n_ref_channels = len(X_ref)
+    
+    def objective(mapping):
+        # Rebin sample to reference grid
+        rebinned = rebin_channels(mapping, sample_counts, n_ref_channels)
+        
+        # Apply ROI mask if provided
+        if roi_channels is not None:
+            ch_min, ch_max = roi_channels
+            mask = (np.arange(n_ref_channels) >= ch_min) & (np.arange(n_ref_channels) <= ch_max)
+            X_fit = X_ref[mask]
+            y_fit = rebinned[mask]
+        else:
+            X_fit = X_ref
+            y_fit = rebinned
+        
+        # Fit and calculate R²
+        model = LinearRegression(fit_intercept=False)
+        model.fit(X_fit, y_fit)
+        r2 = model.score(X_fit, y_fit)
+        
+        iteration_count[0] += 1
+        roi_info = f" (ROI ch {roi_channels[0]}-{roi_channels[1]})" if roi_channels else ""
+        print(f"Iteration {iteration_count[0]}: mapping={mapping}, R²={r2:.6f}{roi_info}")
+        
+        return -r2  # Minimize negative R²
+    
+    # Bounds: a0 within ±50 channels, a1 within 0.9-1.1 (±10% gain)
+    a0_bounds = (initial_mapping[0] - 50, initial_mapping[0] + 50)
+    a1_bounds = (0.9, 1.1)
+    bounds = [a0_bounds, a1_bounds]
+    
+    if method == "L-BFGS-B":
+        result = minimize(
+            objective,
+            initial_mapping,
+            method="L-BFGS-B",
+            bounds=bounds,
+            options={"maxiter": maxiter}
+        )
+    elif method == "Powell":
+        result = minimize(
+            objective,
+            initial_mapping,
+            method="Powell",
+            bounds=bounds,
+            options={"maxiter": maxiter}
+        )
+    elif method == "Nelder-Mead":
+        warnings.warn("Nelder-Mead does not support bounds. Using L-BFGS-B instead.", UserWarning)
+        result = minimize(
+            objective,
+            initial_mapping,
+            method="L-BFGS-B",
+            bounds=bounds,
+            options={"maxiter": maxiter}
+        )
+    else:
+        raise ValueError(f"Unsupported method: {method}")
+    
+    result_dict = {
+        'success': result.success,
+        'message': result.message if hasattr(result, 'message') else str(result),
+        'iterations': iteration_count[0],
+        'final_r2': -result.fun,
+        'method': method,
+        'converged': result.success
+    }
+    
+    return result.x, result_dict
 
 def find_optimal_calibration(ref_calib, initial_true_calib, X, sample_spectrum, bounds, method="L-BFGS-B", maxiter=1000, roi_mask=None):
     """Find optimal calibration coefficients for the sample spectrum to maximize R^2.

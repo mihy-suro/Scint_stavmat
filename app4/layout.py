@@ -352,46 +352,54 @@ def create_layout():
                         
                         # Dual ROI analysis card
                         dbc.Card([
-                            dbc.CardHeader("🎯 Definice ROI"),
+                            dbc.CardHeader("🎯 Definice ROI (kanály)"),
                             dbc.CardBody([
-                                # Region 1: Ra/Th - RangeSlider
+                                # Region 1: Ra/Th - RangeSlider IN CHANNELS
                                 html.Label("Ra/Th ROI:", className="fw-bold small mb-1"),
                                 dcc.RangeSlider(
                                     id='roi1-range-slider',
                                     min=0,
-                                    max=3000,
-                                    step=10,
-                                    value=[0, 1200],
+                                    max=2047,
+                                    step=1,
+                                    value=[138, 573],
                                     marks={
                                         0: '0',
-                                        500: '500',
+                                        200: '200',
+                                        400: '400',
+                                        600: '600',
+                                        800: '800',
                                         1000: '1000',
-                                        1500: '1500',
-                                        2000: '2000',
-                                        2500: '2500',
-                                        3000: '3000'
+                                        1200: '1200',
+                                        1400: '1400',
+                                        1600: '1600',
+                                        1800: '1800',
+                                        2000: '2000'
                                     },
                                     tooltip={"placement": "bottom", "always_visible": True},
                                     allowCross=False,
                                     className="mb-3"
                                 ),
                                 
-                                # Region 2: K-40 - RangeSlider
+                                # Region 2: K-40 - RangeSlider IN CHANNELS
                                 html.Label("K ROI:", className="fw-bold small mb-1"),
                                 dcc.RangeSlider(
                                     id='roi2-range-slider',
                                     min=0,
-                                    max=3000,
-                                    step=10,
-                                    value=[1400, 1520],
+                                    max=2047,
+                                    step=1,
+                                    value=[504, 1182],
                                     marks={
                                         0: '0',
-                                        500: '500',
+                                        200: '200',
+                                        400: '400',
+                                        600: '600',
+                                        800: '800',
                                         1000: '1000',
-                                        1500: '1500',
-                                        2000: '2000',
-                                        2500: '2500',
-                                        3000: '3000'
+                                        1200: '1200',
+                                        1400: '1400',
+                                        1600: '1600',
+                                        1800: '1800',
+                                        2000: '2000'
                                     },
                                     tooltip={"placement": "bottom", "always_visible": True},
                                     allowCross=False,
@@ -400,9 +408,9 @@ def create_layout():
                             ], className="p-2")
                         ], className="mb-3", color="info", outline=True),
                         
-                        # Hidden stores for ROI ranges
-                        dcc.Store(id='roi1-range', data=[0, 1200]),
-                        dcc.Store(id='roi2-range', data=[1400, 1520]),
+                        # Hidden stores for ROI ranges (now in CHANNELS)
+                        dcc.Store(id='roi1-range', data=[138, 573]),
+                        dcc.Store(id='roi2-range', data=[504, 1182]),
                         
                         # Store for K source selection (roi1 or roi2)
                         dcc.Store(id='k-source-roi', data='roi1'),  # Default: use K from Ra/Th ROI

@@ -22,6 +22,20 @@ from processing import (
     calculate_energy,
 )
 
+# CHANNEL-CENTRIC: Import new functions from scripts/utils.py
+import sys
+from pathlib import Path
+# Add scripts directory to path
+scripts_path = Path(__file__).parent.parent.parent / 'scripts'
+if str(scripts_path) not in sys.path:
+    sys.path.insert(0, str(scripts_path))
+
+from utils import (
+    rebin_channels,
+    find_optimal_channel_mapping,
+    calculate_display_energy,
+)
+
 
 # Constants
 CALIBRATION_ENERGIES = [238, 295, 352, 609, 1461, 1764.494, 2614.511]
@@ -72,3 +86,21 @@ def convert_energy_to_channel(energy, calib_coeffs):
             return int((energy - a0) / a1)  # Fallback to linear
         ch = (-a1 + np.sqrt(discriminant)) / (2 * a2)
         return int(ch)
+
+
+def create_channel_mask(roi_channels, n_channels):
+    """Create boolean mask for channels within channel range.
+    
+    This is the CHANNEL-CENTRIC version - much simpler than energy-based masking!
+    
+    Args:
+        roi_channels: [ch_min, ch_max] - channel range
+        n_channels: Total number of channels in spectrum
+    
+    Returns:
+        mask: Boolean array of shape (n_channels,)
+    """
+    channels = np.arange(n_channels)
+    mask = (channels >= roi_channels[0]) & (channels <= roi_channels[1])
+    return mask
+

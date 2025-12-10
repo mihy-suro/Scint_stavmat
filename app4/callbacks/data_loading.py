@@ -43,17 +43,27 @@ def register_data_loading_callbacks(app):
             
             detector_config = config[detector_name]
             
-            # Extract parameters
-            calib_params = detector_config['calibration']
-            ref_a0 = float(calib_params['ref_a0'])
-            ref_a1 = float(calib_params['ref_a1'])
-            ref_a2 = float(calib_params['ref_a2'])
+            # CHANNEL-CENTRIC: Extract channel mapping instead of energy calibration
+            channel_mapping = detector_config.get('channel_mapping', {'ref_a0': 0.0, 'ref_a1': 1.0})
+            ref_ch_a0 = float(channel_mapping['ref_a0'])
+            ref_ch_a1 = float(channel_mapping['ref_a1'])
             
-            # Extract ROI ranges
-            roi_ranges = detector_config.get('roi_ranges', {'roi1': [200, 800], 'roi2': [700, 1640]})
-            roi1_range = roi_ranges.get('roi1', [200, 800])
-            roi2_range = roi_ranges.get('roi2', [700, 1640])
-            preset2_label = f"K: {roi2_range[0]}-{roi2_range[1]} keV"
+            # Extract display calibration (for UI only)
+            display_calib = detector_config.get('display_calibration', {'a0': 9.6229, 'a1': 1.3793, 'a2': 0.0})
+            display_a0 = float(display_calib['a0'])
+            display_a1 = float(display_calib['a1'])
+            display_a2 = float(display_calib.get('a2', 0.0))
+            
+            # CHANNEL-CENTRIC: ROI ranges now in CHANNELS (not keV)
+            roi_ranges = detector_config.get('roi_ranges', {'roi1': [138, 573], 'roi2': [504, 1182]})
+            roi1_range = roi_ranges.get('roi1', [138, 573])
+            roi2_range = roi_ranges.get('roi2', [504, 1182])
+            
+            # Calculate approximate keV for display
+            roi1_kev_min = display_a0 + display_a1 * roi1_range[0]
+            roi1_kev_max = display_a0 + display_a1 * roi1_range[1]
+            roi2_kev_min = display_a0 + display_a1 * roi2_range[0]
+            roi2_kev_max = display_a0 + display_a1 * roi2_range[1]
             
             # Load calibration SPE files
             base_path = Path(__file__).parent.parent
@@ -61,10 +71,11 @@ def register_data_loading_callbacks(app):
             
             from scripts.utils import parse_spe_file
             
-            # Parse Ra, K, Th SPE files
+            # Parse Ra, K, Th, BG SPE files
             ra_path = base_path / calib_spectra['Ra']
             k_path = base_path / calib_spectra['K']
             th_path = base_path / calib_spectra['Th']
+            bg_path = base_path / calib_spectra.get('BG')  # Background is optional
             
             # Read and parse files
             with open(ra_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -74,10 +85,17 @@ def register_data_loading_callbacks(app):
             with open(th_path, 'r', encoding='utf-8', errors='ignore') as f:
                 th_spe = parse_spe_file(f.read())
             
+            # Read background if available
+            bg_spe = None
+            if bg_path and bg_path.exists():
+                with open(bg_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    bg_spe = parse_spe_file(f.read())
+            
             # Extract live times from calibration spectra
             ra_live_time = float(ra_spe.get('ELIVE', 1.0))
             k_live_time = float(k_spe.get('ELIVE', 1.0))
             th_live_time = float(th_spe.get('ELIVE', 1.0))
+            bg_live_time = float(bg_spe.get('ELIVE', 1.0)) if bg_spe else 1.0
             
             # Get standard activities [Bq] from config
             standard_activities = detector_config.get('standard_activities', {})
@@ -87,12 +105,16 @@ def register_data_loading_callbacks(app):
             
             # Build calibration DataFrame
             max_channels = max(len(ra_spe['channels']), len(k_spe['channels']), len(th_spe['channels']))
+            if bg_spe:
+                max_channels = max(max_channels, len(bg_spe['channels']))
             
             # Normalize calibration spectra to CPS/Bq (divide by live_time AND activity)
             # This way regression coefficients will directly give activity in Bq
+            # For background: normalize to CPS only (activity = 1)
             ra_channels = ra_spe['channels'][:max_channels] + [0] * (max_channels - len(ra_spe['channels']))
             k_channels = k_spe['channels'][:max_channels] + [0] * (max_channels - len(k_spe['channels']))
             th_channels = th_spe['channels'][:max_channels] + [0] * (max_channels - len(th_spe['channels']))
+            bg_channels = bg_spe['channels'][:max_channels] + [0] * (max_channels - len(bg_spe['channels'])) if bg_spe else [0] * max_channels
             
             calib_df = pd.DataFrame()
             calib_df['CHNL'] = range(max_channels)
@@ -100,6 +122,8 @@ def register_data_loading_callbacks(app):
             calib_df['Ra'] = [c / ra_live_time / ra_activity for c in ra_channels]
             calib_df['K'] = [c / k_live_time / k_activity for c in k_channels]
             calib_df['Th'] = [c / th_live_time / th_activity for c in th_channels]
+            # Background: normalize to CPS only (coefficient will be dimensionless scaling factor)
+            calib_df['BG'] = [c / bg_live_time for c in bg_channels]
             
             # Store data structure (compatible with analysis callbacks)
             data = {
@@ -108,17 +132,23 @@ def register_data_loading_callbacks(app):
                 'sample_names': [],
                 'sample_live_times': [],
                 'parameters': {
-                    'ref_a0': ref_a0,
-                    'ref_a1': ref_a1,
-                    'ref_a2': ref_a2,
-                    # Store activities for reference (not used in calculation anymore)
+                    # CHANNEL-CENTRIC: Store channel mapping
+                    'ref_ch_a0': ref_ch_a0,
+                    'ref_ch_a1': ref_ch_a1,
+                    # Store display calibration (for UI only)
+                    'display_a0': display_a0,
+                    'display_a1': display_a1,
+                    'display_a2': display_a2,
+                    # Store activities for reference
                     'Ra_activity': ra_activity,
                     'K_activity': k_activity,
                     'Th_activity': th_activity,
                     # Store calibration live times for reference
                     'Ra_live_time': ra_live_time,
                     'K_live_time': k_live_time,
-                    'Th_live_time': th_live_time
+                    'Th_live_time': th_live_time,
+                    'BG_live_time': bg_live_time,
+                    'has_background': bg_spe is not None
                 },
                 'detector_name': detector_name
             }
@@ -128,23 +158,25 @@ def register_data_loading_callbacks(app):
                     html.I(className="fas fa-check-circle text-success me-1"),
                     f"✅ Načtena konfigurace: {detector_name}",
                     html.Br(),
-                    f"Kalibrační spektra: Ra, K, Th ({max_channels} kanálů)",
+                    f"Kalibrační spektra: Ra, K, Th" + (", BG" if bg_spe else "") + f" ({max_channels} kanálů)",
                     html.Br(),
                     f"Aktivity etalonů: Ra={ra_activity:.0f} Bq, K={k_activity:.0f} Bq, Th={th_activity:.0f} Bq",
                     html.Br(),
-                    f"ROI rozsahy: Ra/Th {roi1_range[0]}-{roi1_range[1]} keV, K {roi2_range[0]}-{roi2_range[1]} keV"
+                    f"ROI #1: kanály {roi1_range[0]}-{roi1_range[1]} (~{roi1_kev_min:.0f}-{roi1_kev_max:.0f} keV)",
+                    html.Br(),
+                    f"ROI #2: kanály {roi2_range[0]}-{roi2_range[1]} (~{roi2_kev_min:.0f}-{roi2_kev_max:.0f} keV)"
                 ], className="text-success")
             ])
             
             return (
                 data,
                 True,  # Disable analyze button until sample loaded
-                ref_a0,
-                ref_a1,
-                ref_a2,
-                ref_a0,
-                ref_a1,
-                roi1_range,
+                display_a0,  # Display calibration for UI
+                display_a1,
+                display_a2,
+                display_a0,  # Initial manual values
+                display_a1,
+                roi1_range,  # Now in CHANNELS
                 roi2_range,
                 status_msg
             )
