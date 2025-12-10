@@ -239,7 +239,7 @@ def register_visualization_callbacks(app):
                 if calib_data and 'peaks' in calib_data:
                     for energy_str, channel in calib_data['peaks'].items():
                         if channel != '-':
-                            energy_val = calculate_energy(channel, ref_calib)
+                            energy_val = calculate_energy(channel, sample_calib)
                             
                             if 0 <= channel < len(sample_rebinned):
                                 intensity = sample_rebinned[channel]
