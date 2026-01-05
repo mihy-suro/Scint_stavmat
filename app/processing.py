@@ -2,15 +2,8 @@
 Processing utilities - wrapper pro import funkcí ze scripts/utils.py
 """
 
-import sys
-from pathlib import Path
-
-# Add scripts directory to Python path
-scripts_path = Path(__file__).parent.parent / "scripts"
-sys.path.insert(0, str(scripts_path))
-
-# Import processing functions from scripts
-from utils import (
+# Import processing functions from scripts (now inside app/)
+from scripts.utils import (
     rebin_spectrum,
     find_optimal_calibration,
     ols,

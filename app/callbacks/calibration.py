@@ -261,7 +261,6 @@ def register_calibration_callbacks(app):
         else:
             # No calibration available
             fig.update_layout(
-                title="Žádná kalibrace k dispozici",
                 xaxis_title="Kanál",
                 yaxis_title="Energie (keV)",
                 template='plotly_white'
@@ -269,12 +268,18 @@ def register_calibration_callbacks(app):
             return fig
         
         fig.update_layout(
-            title=title,
             xaxis_title="Kanál",
             yaxis_title="Energie (keV)",
             hovermode='closest',
             template='plotly_white',
-            legend=dict(x=0.05, y=0.95)
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=1.15,
+                xanchor="left",
+                x=0
+            ),
+            margin=dict(t=40, b=40, l=50, r=20)
         )
         
         return fig
@@ -388,18 +393,81 @@ def register_calibration_callbacks(app):
             return {'display': 'none'}
     
     
-    # ==================== CALIBRATION PLOT TOGGLE ====================
+    # ==================== INDIVIDUAL PEAK RESET ====================
     @app.callback(
-        Output('calibration-plot-collapse', 'is_open'),
-        Input('calibration-plot-toggle', 'n_clicks'),
-        State('calibration-plot-collapse', 'is_open'),
+        Output('peak-calibration-data', 'data', allow_duplicate=True),
+        [Input('reset-peak-238', 'n_clicks'),
+         Input('reset-peak-295', 'n_clicks'),
+         Input('reset-peak-352', 'n_clicks'),
+         Input('reset-peak-609', 'n_clicks'),
+         Input('reset-peak-1461', 'n_clicks'),
+         Input('reset-peak-1764', 'n_clicks'),
+         Input('reset-peak-2614', 'n_clicks')],
+        State('peak-calibration-data', 'data'),
         prevent_initial_call=True
     )
-    def toggle_calibration_plot(n_clicks, is_open):
-        """Toggle calibration plot visibility"""
-        if n_clicks:
-            return not is_open
-        return is_open
+    def reset_individual_peak(n238, n295, n352, n609, n1461, n1764, n2614, calib_data):
+        """Reset individual calibration peak when X button clicked"""
+        if not callback_context.triggered:
+            raise PreventUpdate
+        
+        trigger_id = callback_context.triggered[0]['prop_id'].split('.')[0]
+        
+        # Map reset button ID to energy
+        reset_map = {
+            'reset-peak-238': '238',
+            'reset-peak-295': '295',
+            'reset-peak-352': '352',
+            'reset-peak-609': '609',
+            'reset-peak-1461': '1461',
+            'reset-peak-1764': '1764',
+            'reset-peak-2614': '2614'
+        }
+        
+        if trigger_id not in reset_map:
+            raise PreventUpdate
+        
+        # Initialize if needed
+        if calib_data is None:
+            calib_data = {'peaks': {}, 'active_energy': None}
+        
+        # Remove the peak from data
+        energy = reset_map[trigger_id]
+        if 'peaks' in calib_data and energy in calib_data['peaks']:
+            del calib_data['peaks'][energy]
+            print(f"✓ Peak {energy} keV reset")
+        
+        # Clear active energy if it was the one we just reset
+        if calib_data.get('active_energy') == energy:
+            calib_data['active_energy'] = None
+        
+        return calib_data
+    
+    
+    # ==================== RESET ALL PEAKS ====================
+    @app.callback(
+        [Output('peak-calibration-data', 'data', allow_duplicate=True),
+         Output('status-log', 'children', allow_duplicate=True)],
+        Input('reset-all-peaks', 'n_clicks'),
+        prevent_initial_call=True
+    )
+    def reset_all_peaks(n_clicks):
+        """Reset all calibration peaks"""
+        if not n_clicks:
+            raise PreventUpdate
+        
+        print("✓ All peaks reset")
+        
+        empty_calib_data = {'peaks': {}, 'active_energy': None}
+        
+        status_msg = html.Div([
+            html.Small([
+                html.I(className="fas fa-eraser text-warning me-1"),
+                "🧹 Všechny kalibrační body smazány"
+            ], className="text-warning")
+        ])
+        
+        return empty_calib_data, status_msg
     
     
     # ==================== OPTIMIZATION SETTINGS TOGGLE ====================

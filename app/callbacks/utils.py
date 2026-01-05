@@ -11,6 +11,13 @@ import base64
 import io
 import plotly.graph_objects as go
 
+# Import from parent app directory
+import sys
+from pathlib import Path
+app_path = Path(__file__).parent.parent
+if str(app_path) not in sys.path:
+    sys.path.insert(0, str(app_path))
+
 from processing import (
     rebin_spectrum,
     find_optimal_calibration,
@@ -22,18 +29,23 @@ from processing import (
     calculate_energy,
 )
 
-# CHANNEL-CENTRIC: Import new functions from scripts/utils.py
-import sys
-from pathlib import Path
-# Add scripts directory to path
-scripts_path = Path(__file__).parent.parent.parent / 'scripts'
-if str(scripts_path) not in sys.path:
-    sys.path.insert(0, str(scripts_path))
-
-from utils import (
+# CHANNEL-CENTRIC: Import functions from scripts/utils.py (now inside app/)
+from scripts.utils import (
     rebin_channels,
     find_optimal_channel_mapping,
     calculate_display_energy,
+)
+
+# Import plot utilities from app/utils package
+from utils import (
+    create_roi_plot,
+    create_residuals_plot,
+    create_spectrum_figure,
+    add_sample_trace,
+    add_fit_trace,
+    configure_spectrum_layout,
+    create_placeholder_figure,
+    create_error_figure
 )
 
 

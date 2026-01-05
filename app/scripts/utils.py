@@ -6,6 +6,8 @@ from sklearn.linear_model import LinearRegression
 from scipy.optimize import nnls, minimize, dual_annealing
 from scipy.stats import norm
 import statsmodels.api as sm
+from datetime import datetime
+import base64
 
 # Energy calculation (DISPLAY ONLY - not for computation!)
 def calculate_display_energy(channel, display_calib):
@@ -503,6 +505,7 @@ def parse_spe_file(content_string):
     lines = content_string.strip().split('\n')
     result = {
         'SIDENT': None,
+        'EREAL': None,
         'ELIVE': None,
         'ECOFFSET': None,
         'ECSLOPE': None,
@@ -522,11 +525,17 @@ def parse_spe_file(content_string):
                 i += 2
                 continue
         
-        # Parse MEAS_TIM (first number is ELIVE)
+        # Parse MEAS_TIM (real_time live_time - we want live_time)
         elif line.startswith('$MEAS_TIM:'):
             if i + 1 < len(lines):
                 meas_line = lines[i + 1].strip().split()
-                if len(meas_line) >= 1:
+                if len(meas_line) >= 2:
+                    # MEAS_TIM format: "real_time live_time"
+                    # ELIVE should be live_time (second value)
+                    result['EREAL'] = float(meas_line[0])
+                    result['ELIVE'] = float(meas_line[1])
+                elif len(meas_line) >= 1:
+                    # Fallback: only one value, use it as live_time
                     result['ELIVE'] = float(meas_line[0])
                 i += 2
                 continue
@@ -585,4 +594,130 @@ def parse_spe_file(content_string):
     if len(result['channels']) < result['CHANNELS']:
         result['channels'].extend([0] * (result['CHANNELS'] - len(result['channels'])))
     
+    return result
+
+def write_spe_file(counts, metadata=None):
+    """Write spectrum data to SPE file format.
+    
+    Creates a properly formatted SPE file content string that can be saved
+    or downloaded. Follows ORTEC SPE format specification.
+    
+    Args:
+        counts: Array of channel counts (int or float)
+        metadata: Dict with optional keys:
+            - 'SPEC_ID': Spectrum ID (default: 'GAMWIN')
+            - 'SPEC_REM': Spectrum remarks (default: '')
+            - 'DATE_MEA': Measurement date (default: current datetime)
+            - 'MEAS_TIM': [real_time, live_time] in seconds (default: [0, 0])
+            - 'MCA_CAL': [a0, a1, a2] calibration coefficients (default: [0, 1, 0])
+            - 'DETDESC': Detector description (default: '')
+    
+    Returns:
+        str: SPE file content ready to save
+    
+    Example:
+        >>> counts = np.array([0, 10, 20, 15, 5])
+        >>> metadata = {
+        ...     'SPEC_ID': 'Background_Rebinned',
+        ...     'MEAS_TIM': [100.5, 100.0],
+        ...     'MCA_CAL': [9.6229, 1.3793, 0.0]
+        ... }
+        >>> spe_content = write_spe_file(counts, metadata)
+        >>> with open('background.SPE', 'w') as f:
+        ...     f.write(spe_content)
+    """
+    if metadata is None:
+        metadata = {}
+    
+    # Extract metadata with defaults
+    spec_id = metadata.get('SPEC_ID', 'GAMWIN')
+    spec_rem = metadata.get('SPEC_REM', '')
+    detdesc = metadata.get('DETDESC', '')
+    
+    # Date formatting
+    if 'DATE_MEA' in metadata:
+        date_mea = metadata['DATE_MEA']
+    else:
+        # Format: MM/DD/YYYY HH:MM:SS
+        date_mea = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
+    
+    # Measurement times
+    meas_tim = metadata.get('MEAS_TIM', [0.0, 0.0])
+    if len(meas_tim) < 2:
+        meas_tim = [0.0, 0.0]
+    real_time, live_time = meas_tim[0], meas_tim[1]
+    
+    # Calibration coefficients
+    mca_cal = metadata.get('MCA_CAL', [0.0, 1.0, 0.0])
+    if len(mca_cal) < 3:
+        mca_cal = [0.0, 1.0, 0.0]
+    a0, a1, a2 = mca_cal[0], mca_cal[1], mca_cal[2]
+    
+    # Channel data
+    n_channels = len(counts)
+    
+    # Build SPE content
+    lines = []
+    
+    # Header tags
+    lines.append("$SPEC_ID:")
+    lines.append(spec_id)
+    
+    lines.append("$SPEC_REM:")
+    lines.append(spec_rem)
+    lines.append("")
+    
+    lines.append("$DETDESC:")
+    lines.append(detdesc)
+    
+    lines.append("$DATE_MEA:")
+    lines.append(date_mea)
+    
+    lines.append("$MEAS_TIM:")
+    lines.append(f"{real_time:.2f} {live_time:.2f}")
+    
+    lines.append("$MCA_CAL:")
+    lines.append("3")  # Number of calibration coefficients
+    lines.append(f"{a0:.14E} {a1:.14E} {a2:.14E}")
+    
+    # Data section
+    lines.append("$DATA:")
+    lines.append(f"0 {n_channels - 1}")
+    
+    # Write counts (one per line, as integers)
+    for count in counts:
+        lines.append(str(int(round(count))))
+    
+    # Join with newlines and return
+    return "\n".join(lines) + "\n"
+
+def parse_spe_file_from_upload(contents, filename):
+    """Parse SPE file from Dash Upload component.
+    
+    Helper function to decode base64 content from dcc.Upload and parse SPE.
+    
+    Args:
+        contents: Base64 encoded file contents from dcc.Upload
+        filename: Original filename
+    
+    Returns:
+        dict: Parsed SPE data (same format as parse_spe_file)
+    
+    Raises:
+        ValueError: If file is not valid SPE format
+    """
+    # Decode base64 content
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    
+    try:
+        # Try UTF-8 first
+        spe_text = decoded.decode('utf-8')
+    except UnicodeDecodeError:
+        # Fallback to latin-1
+        spe_text = decoded.decode('latin-1')
+    
+    # Parse using existing parser
+    return parse_spe_file(spe_text)
+
     return result

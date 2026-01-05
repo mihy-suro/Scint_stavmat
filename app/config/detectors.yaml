@@ -33,10 +33,10 @@ CeBr3:
     cut_channel_right: 2048  # Pravý cutoff kanál
   
   calibration_spectra:
-    Ra: "data/calibration/Ra_CeBr.SPE"   # Ra-226 kalibrační spektrum
-    K: "data/calibration/K_CeBr.SPE"     # K-40 kalibrační spektrum
-    Th: "data/calibration/Th_CeBr.SPE"   # Th-232 kalibrační spektrum
-    BG: "data/calibration/BG_CeBr.SPE"   # Pozadí detektoru
+    Ra: "app/data/calibration/Ra_CeBr.SPE"   # Ra-226 kalibrační spektrum
+    K: "app/data/calibration/K_CeBr.SPE"     # K-40 kalibrační spektrum
+    Th: "app/data/calibration/Th_CeBr.SPE"   # Th-232 kalibrační spektrum
+    BG: "app/data/calibration/BG_CeBr.SPE"   # Pozadí detektoru
 
 NaI(Tl):
   # Channel mapping pro rebinning
@@ -57,15 +57,15 @@ NaI(Tl):
   
   # ROI ranges v KANÁLECH
   roi_ranges:
-    roi1: [138, 2024]     # Ra/Th region (~200-2800 keV)
-    roi2: [504, 1182]     # K-40 region (~700-1640 keV)
+    roi1: [170, 1030]     # Ra/Th region
+    roi2: [500, 1245]     # K-40 region
   
   processing:
     cut_channel_left: 0
     cut_channel_right: 2048
   
   calibration_spectra:
-    Ra: "data/calibration/Ra_NaI.SPE"
-    K: "data/calibration/K_NaI.SPE"
-    Th: "data/calibration/Th_NaI.SPE"
-    BG: "data/calibration/BG_NaI.SPE"    # Pozadí detektoru
+    Ra: "app/data/calibration/Ra_NaI.SPE"
+    K: "app/data/calibration/K_NaI.SPE"
+    Th: "app/data/calibration/Th_NaI.SPE"
+    BG: "app/data/calibration/BG_NaI.SPE"    # Pozadí detektoru

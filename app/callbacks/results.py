@@ -3,6 +3,11 @@ Results callbacks - display and export results
 """
 
 from .utils import *
+from utils import (
+    calculate_activity_index,
+    calculate_index_uncertainty,
+    extract_coefficients_from_results
+)
 
 
 def register_results_callbacks(app):
@@ -11,52 +16,28 @@ def register_results_callbacks(app):
     # ==================== UPDATE ACCUMULATED RESULTS TABLE ====================
     @app.callback(
         Output('accumulated-results-table', 'data'),
-        [Input('accumulated-results', 'data'),
-         Input('k-source-roi', 'data')]
+        Input('accumulated-results', 'data')
     )
-    def update_accumulated_table(accumulated, k_source_roi):
-        """Update accumulated results table - dynamically switches K values based on toggle"""
+    def update_accumulated_table(accumulated):
+        """Update accumulated results table - K always from ROI2"""
         if not accumulated:
             return []
         
-        # Default K source if not set
-        if not k_source_roi:
-            k_source_roi = 'roi1'
+        # K always from ROI2 (K ROI)
+        k_source_roi = 'roi2'
         
         # Format for display - expect only full results format from run_analysis
         display_data = []
         for entry in accumulated:
             try:
-                # Extract from full results dict
-                res = entry['results']
-                coeff = res['Coefficients']
-                stderr = res['Std Errors']
+                # Extract coefficients and errors using utility
+                ra_val, k_val, th_val, ra_err_val, k_err, th_err_val = extract_coefficients_from_results(
+                    entry, k_source_roi=k_source_roi
+                )
                 
-                # Check if ROI is enabled and we have separate ROI results
-                roi_info = entry.get('roi_info', {})
-                if roi_info.get('enabled') and roi_info.get('roi1_results') and roi_info.get('roi2_results'):
-                    # Dynamically select K based on current toggle state
-                    if k_source_roi == 'roi2':
-                        k_val = roi_info['roi2_results']['Coefficients']['K']
-                        k_err = roi_info['roi2_results']['Std Errors']['K']
-                    else:
-                        k_val = roi_info['roi1_results']['Coefficients']['K']
-                        k_err = roi_info['roi1_results']['Std Errors']['K']
-                else:
-                    # No ROI or old format - use stored values
-                    k_val = coeff['K']
-                    k_err = stderr['K']
-                
-                # Calculate index: Ra/300 + Th/200 + K/3000
-                ra_val = coeff['Ra']
-                th_val = coeff['Th']
-                index = ra_val / 300.0 + th_val / 200.0 + k_val / 3000.0
-                
-                # Calculate index uncertainty using error propagation
-                # dI = sqrt((dRa/300)^2 + (dTh/200)^2 + (dK/3000)^2)
-                ra_err_val = stderr['Ra']
-                th_err_val = stderr['Th']
-                index_err = ((ra_err_val / 300.0)**2 + (th_err_val / 200.0)**2 + (k_err / 3000.0)**2)**0.5
+                # Calculate index using utilities
+                index = calculate_activity_index(ra_val, th_val, k_val)
+                index_err = calculate_index_uncertainty(ra_val, ra_err_val, th_val, th_err_val, k_val, k_err)
                 
                 display_data.append({
                     'sample_id': entry['sample_name'],
@@ -127,23 +108,14 @@ def register_results_callbacks(app):
             export_data = []
             for entry in accumulated:
                 try:
-                    res = entry['results']
-                    coeff = res['Coefficients']
-                    stderr = res['Std Errors']
+                    # Extract coefficients and errors using utility (use 'roi2' for export)
+                    ra_val, k_val, th_val, ra_err, k_err, th_err = extract_coefficients_from_results(
+                        entry, k_source_roi='roi2'
+                    )
                     
-                    # Get Ra, K, Th values
-                    ra_val = coeff['Ra']
-                    k_val = coeff['K']
-                    th_val = coeff['Th']
-                    ra_err = stderr['Ra']
-                    k_err = stderr['K']
-                    th_err = stderr['Th']
-                    
-                    # Calculate index: Ra/300 + Th/200 + K/3000
-                    index = ra_val / 300.0 + th_val / 200.0 + k_val / 3000.0
-                    
-                    # Calculate index uncertainty using error propagation
-                    index_err = ((ra_err / 300.0)**2 + (th_err / 200.0)**2 + (k_err / 3000.0)**2)**0.5
+                    # Calculate index using utilities
+                    index = calculate_activity_index(ra_val, th_val, k_val)
+                    index_err = calculate_index_uncertainty(ra_val, ra_err, th_val, th_err, k_val, k_err)
                     
                     export_data.append({
                         'sample_name': entry['sample_name'],

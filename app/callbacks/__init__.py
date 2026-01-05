@@ -16,3 +16,4 @@ def register_all_callbacks(app):
     register_analysis_callbacks(app)
     register_visualization_callbacks(app)
     register_results_callbacks(app)
+
