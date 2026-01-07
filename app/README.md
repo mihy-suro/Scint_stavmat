@@ -1,38 +1,103 @@
 # Gamma Spektroskopie - Dash Aplikace
 
-Interaktivní webová aplikace pro analýzu scintilačních spekter pomocí kanálově-centrického přístupu s rebinningem a dekonvolucí.
+Interaktivní webová aplikace pro kvantitativní analýzu scintilačních spekter pomocí dekonvoluce s kalibračními etalony.
+
+---
+
+## 🎯 Účel aplikace
+
+Tato aplikace slouží k **určení aktivit přirozených radionuklidů** (Ra-226, K-40, Th-232) ve stavebních materiálech měřených scintilačními detektory (CeBr₃, NaI(Tl)). Hlavní výhodou oproti HPGe spektrometrii je **rychlost měření** díky vyšší účinnosti detektorů, což umožňuje screeningovou analýzu velkého počtu vzorků.
+
+### Matematický princip
+
+Aplikace využívá **spektrální dekonvoluci** - rozklad změřeného spektra na příspěvky jednotlivých radionuklidů pomocí jejich referenčních spekter:
+
+```
+y_measured = c₁·S_Ra + c₂·S_K + c₃·S_Th + c₄·S_BG + ε
+```
+
+kde:
+- **y_measured**: Naměřené spektrum vzorku [counts/s v každém kanálu]
+- **S_Ra, S_K, S_Th**: Normalizovaná kalibrační spektra etalonů Ra-226, K-40, Th-232
+- **S_BG**: Spektrum pozadí detektoru
+- **c₁, c₂, c₃, c₄**: Hledané koeficienty (úměrné aktivitám)
+- **ε**: Reziduální chyba (statistický šum)
+
+Soustava se řeší pomocí **NNLS** (Non-Negative Least Squares) nebo **OLS** (Ordinary Least Squares) regrese. Pro zlepšení přesnosti se spektrum rozděluje do energetických oblastí (ROI - Regions of Interest) a každá oblast se analyzuje samostatně.
+
+Klíčovou technikou je **rebinning** - mapování spekter z různých detektorů/nastavení do společné kanálové mřížky pomocí lineární transformace `ch_ref = a₀ + a₁·ch_sample`, což umožňuje dekonvoluci i při mírných rozdílech v energetické kalibraci.
+
+---
+
+## 📥 Vstupy a výstupy
+
+### Požadované vstupy
+
+#### 1. **Kalibrační spektra** (etalony)
+Umístění: `app/data/calibration/`
+
+Formát: **SPE soubory** (Maestro formát)
+- `Ra_CeBr.SPE` / `Ra_NaI.SPE` - Spektrum Ra-226 etalonu (známá aktivita)
+- `K_CeBr.SPE` / `K_NaI.SPE` - Spektrum K-40 etalonu (známá aktivita)
+- `Th_CeBr.SPE` / `Th_NaI.SPE` - Spektrum Th-232 etalonu (známá aktivita)
+- `BG_CeBr.SPE` / `BG_NaI.SPE` - Spektrum pozadí detektoru
+
+Tyto soubory se načítají automaticky při výběru detektoru.
+
+> **Poznámka**: Pro konverzi z CNF (Genie 2000) do SPE použijte nástroj `Converter/` ve workspace.
+
+#### 2. **Spektra vzorků**
+Formát: **SPE soubory** (Maestro formát)
+
+Vzorky se nahrávají přes Upload komponentu v aplikaci. Aplikace automaticky detekuje:
+- Live time (doba měření)
+- Počet kanálů
+- Název vzorku (z `$SPEC_ID` sekce)
+
+#### 3. **Konfigurace detektoru**
+Soubor: `app/config/detectors.yaml`
+
+Obsahuje:
+- ROI rozsahy v kanálech
+- Aktivity kalibračních etalonů [Bq]
+- Energetickou kalibraci pro zobrazení
+- Parametry pro analýzu Ra-226 @ 186 keV píku
+
+> Detaily konfigurace viz sekce [Vstupy a výstupy](#vstupy-a-výstupy-1).
+
+### Výstupy aplikace
+
+#### 1. **Interaktivní grafy** (Plotly)
+- Celé spektrum s ROI oblastmi a kalibračními značkami
+- Zoom ROI #1 (Ra/Th) a ROI #2 (K-40) s fitem a komponentami
+- Residuální grafy pro kontrolu kvality fitu
+- Graf píku Ra-226 @ 186 keV s net area
+
+#### 2. **Tabulka výsledků**
+- Aktivity Ra-226, K-40, Th-232 s nejistotami [Bq]
+- Specifické aktivity [Bq/g]
+- Goodness-of-fit metriky (MSE, R²)
+- Channel mapping koeficienty
+
+#### 3. **Excel export**
+Soubor: `results_YYYYMMDD_HHMMSS.xlsx` obsahuje:
+- Summary: Všechny výsledky pro každý analyzovaný vzorek
+- Calibration: Použité parametry kalibrace
+- Metadata: Live times, hmotnosti vzorků, časové razítko
 
 ---
 
 ## 📋 Obsah
 
-- [Přehled](#přehled)
+- [Účel aplikace](#účel-aplikace)
+- [Vstupy a výstupy](#vstupy-a-výstupy)
 - [Architektura](#architektura)
 - [Matematické metody](#matematické-metody)
-- [Vstupy a výstupy](#vstupy-a-výstupy)
+- [Vstupy a výstupy (detaily)](#vstupy-a-výstupy-1)
 - [Závislosti](#závislosti)
 - [Instalace a spuštění](#instalace-a-spuštění)
 - [Workflow aplikace](#workflow-aplikace)
-- [Struktura souborů](#struktura-souborů)
-
----
-
-## 🎯 Přehled
-
-Tato Dash aplikace umožňuje:
-- **Načítání spekter** z Excel souborů nebo SPE formátu
-- **Energetickou kalibraci** pomocí známých píků
-- **Dekonvoluci spekter** pomocí NNLS/OLS regrese s kalibračními etalonými spektry
-- **Výpočet aktivit** Ra-226, K-40 a Th-232 ve vzorcích
-- **Analýzu píku Ra-226 @ 186 keV** s korekcí interference U-235
-- **Interaktivní vizualizaci** celých spekter, ROI oblastí a residuí
-- **Export výsledků** do Excel formátu
-
-### Hlavní vlastnosti
-- **Channel-centric design**: Všechny ROI a mapování jsou v kanálech, energie pouze pro display
-- **Rebinning**: Mapování spekter vzorků do referenční kanálové mřížky pomocí lineární transformace
-- **Multi-ROI analýza**: Samostatné regrese pro Ra/Th a K-40 oblasti s odlišnými channel mappingy
-- **Optimalizace kalibrace**: Automatické hledání optimálního channel mappingu minimalizací MSE
+- [Debugging tipy](#debugging-tipy)
 
 ---
 
@@ -207,32 +272,15 @@ kde:
 - `m_sample`: Hmotnost vzorku [g]
 - `A_specific`: Specifická aktivita [Bq/g]
 
-**Specifické aktivity** (datované k 1.1.2026):
-- K-40: 265114 Bq/g
-- Th-232: 4065 Bq/g (rovnováha s dceřinými)
-- Ra-226: 36590 Bq/g (rovnováha s dceřinými)
+> Hodnoty specifických aktivit jsou definovány v `config/detectors.yaml`
 
 ---
 
-## 📊 Vstupy a výstupy
+## 📊 Vstupy a výstupy (detaily)
 
 ### Vstupy
 
-#### 1. **Excel soubor** (primární)
-
-Struktura:
-```
-Sheet "Detektor vzorky":
-  Row 1: Sample names [-, SAMP1, SAMP2, ...]
-  Row 3: Live times [-, 1000, 1000, ...]  # [s]
-  Row 12+: [CHNL | Counts_1 | Counts_2 | ...]
-
-Sheet "Detektor kalibrace":
-  Row 1: [-, Ra, K, Th, BG]
-  Row 12+: [CHNL | Ra_counts | K_counts | Th_counts | BG_counts]
-```
-
-#### 2. **SPE soubory** (alternativní)
+#### 1. **SPE soubory**
 
 Maestro formát:
 ```
@@ -251,7 +299,13 @@ $ROI:        # Optional
 ...
 ```
 
-#### 3. **Konfigurace detektoru** (`config/detectors.yaml`)
+**Struktura SPE souboru**:
+- `$SPEC_ID`: Identifikace vzorku (název)
+- `$MEAS_TIM`: Live time a real time [s]
+- `$DATA`: Počty v každém kanálu (0 až 2047)
+- `$ROI`: Volitelné ROI definice (aplikace nepoužívá)
+
+#### 2. **Konfigurace detektoru** (`config/detectors.yaml`)
 
 ```yaml
 CeBr3:
@@ -329,6 +383,7 @@ openpyxl>=3.1.0           # Excel I/O
 
 ### Systémové požadavky
 
+- **Windows 10/11** (primární platforma)
 - Python 3.9+
 - 4 GB RAM (pro velké spektra)
 - Moderní webový prohlížeč (Chrome, Firefox, Edge)
@@ -339,16 +394,17 @@ openpyxl>=3.1.0           # Excel I/O
 
 ### 1. Vytvoření virtuálního prostředí
 
-```bash
+```powershell
 cd app/
 python -m venv .venv
-.venv\Scripts\activate     # Windows
-source .venv/bin/activate  # Linux/Mac
+.venv\Scripts\activate
 ```
+
+> **Poznámka**: Na Linux/Mac použijte `source .venv/bin/activate`
 
 ### 2. Instalace závislostí
 
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
@@ -362,7 +418,7 @@ Umístit kalibrační spektra do `app/data/calibration/`:
 
 ### 4. Spuštění aplikace
 
-```bash
+```powershell
 python app.py
 ```
 
@@ -375,8 +431,10 @@ Aplikace běží na `http://localhost:8051`
 ### Krok 1: Načtení dat
 
 1. Vybrat detektor (CeBr3 / NaI(Tl))
-2. Upload Excel souboru nebo SPE souborů
-3. Aplikace načte spektra + metadata (live times, sample names)
+   - Automaticky se načtou kalibrační SPE soubory (Ra, K, Th, BG)
+   - Nastaví se defaultní ROI rozsahy a parametry z YAML
+2. Upload SPE souboru vzorku přes drag&drop oblast
+3. Aplikace načte spektrum + metadata (live time, název vzorku)
 
 ### Krok 2: Kalibrace
 
@@ -419,198 +477,7 @@ Aplikace běží na `http://localhost:8051`
 
 ---
 
-## 📁 Struktura souborů (detaily)
-
-### `app.py`
-Inicializace Dash aplikace, registrace callbacks, server start.
-
-```python
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-app.layout = create_layout()
-register_all_callbacks(app)
-app.run(debug=True, port=8051)
-```
-
-### `layout.py`
-Definice UI layoutu pomocí Dash Bootstrap Components:
-- Header s výběrem detektoru
-- Upload area
-- Sample selector
-- Parameter cards (calibration, ROI, regression)
-- Tabs: Spectrum | Results | Export
-- Plotly graphs placeholders
-
-### `callbacks/`
-
-#### `__init__.py`
-Registruje všechny callback moduly:
-```python
-def register_all_callbacks(app):
-    register_data_loading_callbacks(app)
-    register_calibration_callbacks(app)
-    register_analysis_callbacks(app)
-    register_visualization_callbacks(app)
-    register_results_callbacks(app)
-```
-
-#### `data_loading.py`
-- Upload Excel → parse → store v `dcc.Store`
-- Upload SPE → parse → konverze do unified formátu
-- Load detector config z YAML
-- Inicializace calibration stores
-
-#### `calibration.py`
-- Click na graf → capture channel position
-- Fit polynomu energií k channel positions
-- Update energetických koeficientů (`a0`, `a1`, `a2`)
-- Display fitted calibration curve
-
-#### `analysis.py`
-**Hlavní modul** s regresní analýzou:
-
-1. `prepare_sample_data()`: Extrakce + normalizace + rebinning
-2. `build_calibration_matrix()`: Sestavení `X` matice
-3. `perform_single_regression()` nebo `perform_dual_roi_regression()`:
-   - Single: Jedna regrese přes celé spektrum
-   - Dual: Samostatné regrese pro ROI #1 a #2 s různými mappingy
-4. `optimize_channel_mapping_wrapper()`: Iterativní optimalizace MSE
-5. `calculate_ra226_from_186kev_peak()`: 186 keV peak analýza
-6. `compile_results_dynamic()`: Package všech výsledků
-7. Store → accumulated results (pro vícenásobné vzorky)
-
-#### `visualization.py`
-Wrapper registrující sub-moduly:
-- `register_full_spectrum_callbacks()`
-- `register_roi_callbacks()`
-- `register_186peak_callbacks()`
-- ROI slider sync callback
-
-#### `visualization_full_spectrum.py`
-Callback: `update_plot_full()`
-- X-axis: Channels (CHNL)
-- Y-axis: Counts (CPS)
-- Traces: Sample spectrum + fit (if available)
-- Overlays: ROI #1, ROI #2 (colored rectangles)
-- Markers: Calibration peaks (green X)
-- Zoom: Synced s ROI display slider
-
-#### `visualization_roi.py`
-4 callbacks:
-- `update_plot_roi1()`: Ra/Th region zoom + fit components
-- `update_plot_roi2()`: K-40 region zoom + fit components
-- `update_residuals_roi1()`: Relative residuals ROI #1
-- `update_residuals_roi2()`: Relative residuals ROI #2
-
-#### `visualization_186peak.py`
-Callback: `update_plot_186()`
-- Zoomed view kolem 186 keV píku
-- Linear background fit
-- Net area calculation (yellow fill)
-- RangeSlider: Outer = zoom, Inner = peak ROI boundaries
-- Live text update: Net area + activity
-
-#### `results.py`
-- Generate results table (HTML)
-- Export to Excel callback
-- Clear results callback
-
-### `scripts/`
-
-#### `deconv.py`
-Standalone script pro batch analýzu (bez GUI):
-```python
-# Load calibration spectra
-calib_df = load_calibrations()
-
-# Process sample
-sample_df = load_sample()
-sample_rebinned = rebin_spectrum(sample_df)
-
-# Deconvolve
-coeffs, mse = nnls_detailed(X=calib_df, y=sample_rebinned)
-
-# Compile results
-results = compile_results(coeffs, standard_activities)
-```
-
-#### `utils.py`
-Core matematické funkce:
-- `rebin_channels()`: Lineární interpolace pro rebinning
-- `ols()`: Ordinary Least Squares solver
-- `nnls_detailed()`: NNLS wrapper s MSE
-- `compile_results()`: Aktivita → hustota konverze
-- `normalize_by_live_time()`: Counts → CPS
-- `subtract_background()`: Sample - BG
-- `calculate_energy()`: Channel → Energy (polynomial)
-
-### `utils/`
-
-#### `analysis_core.py`
-Extrahované těžké výpočty z `analysis.py`:
-- `prepare_sample_data()`: Rebin + normalizace
-- `build_calibration_matrix()`: X matrix construction
-- `perform_single_regression()`: Full spectrum NNLS/OLS
-- `perform_dual_roi_regression()`: Multi-ROI s oddělnými mappingy
-- `package_analysis_results()`: Kompilace do dictionary
-
-#### `channel_processing.py`
-- `optimize_channel_mapping()`: Grid search nebo Nelder-Mead
-- `find_optimal_calibration()`: Wrapper s MSE tracking
-- `validate_roi_ranges()`: Check ROI validity
-
-#### `config_loader.py`
-- `load_detector_config()`: Parse YAML → Python dict
-- `get_detector_params()`: Extract specifických parametrů
-- Validation checks (missing keys, invalid ranges)
-
-#### `data_helpers.py`
-- `unpack_excel_data()`: Extract calib_df, sample_df, bg_df
-- `get_sample_data()`: Retrieve specific sample spectrum
-- `has_background_data()`: Check if BG is available
-
-#### `peak_analysis.py`
-- `calculate_ra226_from_186kev_peak()`: Complete 186 keV workflow
-- `find_peak_position()`: Smooth + search maximum
-- `integrate_peak_area()`: Gross - linear background
-- `estimate_background()`: Edge channels → linear fit
-
-#### `plot_builders.py`
-High-level Plotly figure buildery:
-- `create_full_spectrum_plot()`: Complete spectrum viz
-- `create_roi_plot()`: Zoomed ROI with fit
-- `create_residuals_plot()`: Residuals with stats
-- `create_186peak_plot()`: 186 keV peak viz
-
-#### `plot_components.py`
-Reusable trace factories:
-- `add_spectrum_trace()`: Step histogram
-- `add_fit_trace()`: Fitted curve
-- `add_component_traces()`: Stacked components (Ra, K, Th, BG)
-- `add_roi_overlay()`: Colored rectangle
-- `add_calibration_markers()`: Green X markers
-
-#### `results_calculations.py`
-- `compile_results_dynamic()`: Unified result packaging
-- `calculate_activity_uncertainties()`: Poisson statistics
-- `convert_to_density()`: Bq → g/g
-- `format_results_table()`: HTML rendering
-
-#### `spe_handler.py`
-- `parse_spe_file()`: Maestro format parser
-- `extract_live_time()`: From `$MEAS_TIM` section
-- `extract_roi_info()`: From `$ROI` section (optional)
-- `spe_to_dataframe()`: SPE → pandas DataFrame
-
-#### `ui_builders.py`
-Dash component factories:
-- `create_parameter_card()`: Bootstrap card with inputs
-- `create_slider_card()`: RangeSlider with labels
-- `create_button_group()`: Action buttons
-- `create_alert()`: Status messages
-
----
-
-## 🔍 Debugging tipy
+##  Debugging tipy
 
 ### 1. **Print diagnostics**
 
@@ -652,8 +519,8 @@ Tento projekt je vyvíjen pro výzkumné účely na oddělení radiometrie SÚRO
 
 ## 👥 Kontakt
 
-**Autor**: Michal Hybler  
-**Email**: michal.hybler@suro.cz  
+**Autor**: Miroslav Hýža  
+**Email**: miroslav.hyza@suro.cz  
 **GitHub**: https://github.com/mihy-suro/Scint_stavmat
 
 ---
