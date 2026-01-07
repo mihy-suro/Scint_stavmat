@@ -2,6 +2,8 @@
 
 Interaktivní webová aplikace pro kvantitativní analýzu scintilačních spekter pomocí dekonvoluce s kalibračními etalony.
 
+![Screenshot aplikace](assets/screenshot.PNG)
+
 ---
 
 ## 🎯 Účel aplikace
@@ -326,7 +328,9 @@ Aplikace běží na `http://localhost:8051`
 - Zadat známé energie píků [keV]
 - Kliknout na odpovídající píky ve spektru
 - Fit polynomu: `E = a0 + a1*CH + a2*CH²`
-- Koeficienty se použijí **pouze pro display** (osy grafu)
+- Koeficienty se použijí pro:
+  - **Display** (osy grafu v keV)
+  - **Startovní vektor** pro optimalizaci channel mappingu
 
 **Channel mapping**:
 - Defaultně: identity mapping `(0.0, 1.0)`
@@ -392,34 +396,3 @@ Residuals by měla být **náhodná kolem 0**:
 Otevřít Developer Tools (F12) → Console tab
 - Zobrazí Dash callback errors
 - Network tab → API requests timing
-
----
-
-## 📝 Licence
-
-Tento projekt je vyvíjen pro výzkumné účely na oddělení radiometrie SÚRO.
-
----
-
-## 👥 Kontakt
-
-**Autor**: Miroslav Hýža  
-**Email**: miroslav.hyza@suro.cz  
-**GitHub**: https://github.com/mihy-suro/Scint_stavmat
-
----
-
-## 🔄 Changelog
-
-### v2.0 (2026-01-07)
-- ✅ Refactoring visualization.py → 4 moduly
-- ✅ Channel-centric ROI design
-- ✅ Multi-ROI regression s oddělenými mappingy
-- ✅ Ra-226 @ 186 keV peak analysis
-- ✅ README dokumentace
-
-### v1.0 (2024-12-15)
-- ✅ Initial Dash aplikace
-- ✅ SPE file loading
-- ✅ NNLS/OLS deconvolution
-- ✅ Interactive Plotly graphs
