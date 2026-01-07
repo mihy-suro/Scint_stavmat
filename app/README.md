@@ -29,6 +29,19 @@ Klíčovou technikou je **rebinning** - mapování spekter z různých detektor�
 
 ---
 
+## 📋 Obsah
+
+- [Účel aplikace](#účel-aplikace)
+- [Vstupy a výstupy](#vstupy-a-výstupy)
+- [Architektura](#architektura)
+- [Matematické metody](#matematické-metody)
+- [Závislosti](#závislosti)
+- [Instalace a spuštění](#instalace-a-spuštění)
+- [Workflow aplikace](#workflow-aplikace)
+- [Debugging tipy](#debugging-tipy)
+
+---
+
 ## 📥 Vstupy a výstupy
 
 ### Požadované vstupy
@@ -55,15 +68,7 @@ Vzorky se nahrávají přes Upload komponentu v aplikaci. Aplikace automaticky d
 - Název vzorku (z `$SPEC_ID` sekce)
 
 #### 3. **Konfigurace detektoru**
-Soubor: `app/config/detectors.yaml`
-
-Obsahuje:
-- ROI rozsahy v kanálech
-- Aktivity kalibračních etalonů [Bq]
-- Energetickou kalibraci pro zobrazení
-- Parametry pro analýzu Ra-226 @ 186 keV píku
-
-> Detaily konfigurace viz sekce [Vstupy a výstupy](#vstupy-a-výstupy-1).
+Soubor: `config/detectors.yaml` - obsahuje ROI rozsahy, aktivity etalonů, energetickou kalibraci a parametry analýzy.
 
 ### Výstupy aplikace
 
@@ -75,29 +80,11 @@ Obsahuje:
 
 #### 2. **Tabulka výsledků**
 - Aktivity Ra-226, K-40, Th-232 s nejistotami [Bq]
-- Specifické aktivity [Bq/g]
-- Goodness-of-fit metriky (MSE, R²)
-- Channel mapping koeficienty
+- Ra-226 z analýzy píku 186 keV
+- Aktivitní index
 
 #### 3. **Excel export**
-Soubor: `results_YYYYMMDD_HHMMSS.xlsx` obsahuje:
-- Summary: Všechny výsledky pro každý analyzovaný vzorek
-- Calibration: Použité parametry kalibrace
-- Metadata: Live times, hmotnosti vzorků, časové razítko
-
----
-
-## 📋 Obsah
-
-- [Účel aplikace](#účel-aplikace)
-- [Vstupy a výstupy](#vstupy-a-výstupy)
-- [Architektura](#architektura)
-- [Matematické metody](#matematické-metody)
-- [Vstupy a výstupy (detaily)](#vstupy-a-výstupy-1)
-- [Závislosti](#závislosti)
-- [Instalace a spuštění](#instalace-a-spuštění)
-- [Workflow aplikace](#workflow-aplikace)
-- [Debugging tipy](#debugging-tipy)
+Soubor: `accumulated_results_YYYYMMDD_HHMMSS.xlsx` - tabulka výsledků pro všechny analyzované vzorky.
 
 ---
 
@@ -118,7 +105,7 @@ app/
 │   ├── __init__.py          # Registrace všech callbacks
 │   ├── analysis.py          # Hlavní regresní analýza
 │   ├── calibration.py       # Energetická kalibrace
-│   ├── data_loading.py      # Načítání dat z Excel/SPE
+│   ├── data_loading.py      # Načítání SPE souborů a YAML konfigurace
 │   ├── results.py           # Export a zobrazení výsledků
 │   ├── utils.py             # Sdílené importy pro callbacks
 │   ├── visualization.py     # Wrapper pro vizualizace
@@ -261,109 +248,6 @@ A_Ra_corrected = A_Ra_raw * 0.575  # 57.5% contribution from Ra-226
 
 **Implementace**: `utils/peak_analysis.py::calculate_ra226_from_186kev_peak()`
 
-### 6. **Konverze aktivita → hustota**
-
-```python
-ρ_material = A_nuclide / (m_sample * A_specific)
-```
-
-kde:
-- `A_nuclide`: Aktivita radionuklidu [Bq]
-- `m_sample`: Hmotnost vzorku [g]
-- `A_specific`: Specifická aktivita [Bq/g]
-
-> Hodnoty specifických aktivit jsou definovány v `config/detectors.yaml`
-
----
-
-## 📊 Vstupy a výstupy (detaily)
-
-### Vstupy
-
-#### 1. **SPE soubory**
-
-Maestro formát:
-```
-$SPEC_ID:
-Sample description
-$MEAS_TIM:
-1000 1000    # Live time, Real time [s]
-$DATA:
-0 2047       # Start channel, End channel
-123          # Counts in ch 0
-456          # Counts in ch 1
-...
-$ROI:        # Optional
-3
-200 300      # ROI 1: channels 200-300
-...
-```
-
-**Struktura SPE souboru**:
-- `$SPEC_ID`: Identifikace vzorku (název)
-- `$MEAS_TIM`: Live time a real time [s]
-- `$DATA`: Počty v každém kanálu (0 až 2047)
-- `$ROI`: Volitelné ROI definice (aplikace nepoužívá)
-
-#### 2. **Konfigurace detektoru** (`config/detectors.yaml`)
-
-```yaml
-CeBr3:
-  channel_mapping:
-    ref_a0: 0.0
-    ref_a1: 1.0
-  display_calibration:
-    a0: 9.6229      # [keV]
-    a1: 1.3793      # [keV/channel]
-    a2: 0.0         # [keV/channel²]
-  standard_activities:
-    Ra: 1001.4      # [Bq]
-    K: 11505        # [Bq]
-    Th: 1020.0      # [Bq]
-  roi_ranges:
-    roi1: [138, 573]   # Ra/Th ROI [channels]
-    roi2: [504, 1182]  # K-40 ROI [channels]
-  peak_analysis:
-    ra_186_energy: 186.0
-    roi_half_width: 15
-    bg_margin: 5
-    ra_186_correction: 0.575
-  calibration_spectra:
-    Ra: "app/data/calibration/Ra_CeBr.SPE"
-    K: "app/data/calibration/K_CeBr.SPE"
-    Th: "app/data/calibration/Th_CeBr.SPE"
-    BG: "app/data/calibration/BG_CeBr.SPE"
-```
-
-### Výstupy
-
-#### 1. **Interaktivní grafy** (Plotly)
-
-- **Celé spektrum**: Resampled spectrum + ROI overlays + calibration markers
-- **ROI #1 zoom**: Ra/Th region with fit + components (Ra, Th, BG)
-- **ROI #2 zoom**: K-40 region with fit + components (K, BG)
-- **Residua**: Relative residuals `(Data - Fit) / Data`
-- **Ra-226 @ 186 keV**: Peak with linear background + net area
-
-#### 2. **Results table**
-
-| Parameter | Value | Unit |
-|-----------|-------|------|
-| Ra-226 activity | 1234.5 ± 12.3 | Bq |
-| K-40 activity | 5678.9 ± 56.7 | Bq |
-| Th-232 activity | 987.6 ± 9.8 | Bq |
-| MSE (ROI #1) | 0.0123 | - |
-| MSE (ROI #2) | 0.0456 | - |
-
-#### 3. **Excel export**
-
-Soubor: `results_YYYYMMDD_HHMMSS.xlsx`
-
-Sheets:
-- **Summary**: Aktivita [Bq], Hustota [g/g], Nejistoty
-- **Calibration**: Channel mapping koeficienty
-- **Metadata**: Live time, sample name, detector, timestamp
-
 ---
 
 ## 🔗 Závislosti
@@ -447,7 +331,7 @@ Aplikace běží na `http://localhost:8051`
 **Channel mapping**:
 - Defaultně: identity mapping `(0.0, 1.0)`
 - Manuálně upravit `a0`, `a1`
-- Nebo optimalizovat automaticky (tlačítko "Optimize")
+- Nebo zapnout automatickou optimalizaci (switch "Optimalizovat")
 
 ### Krok 3: Nastavení ROI
 
@@ -536,6 +420,6 @@ Tento projekt je vyvíjen pro výzkumné účely na oddělení radiometrie SÚRO
 
 ### v1.0 (2024-12-15)
 - ✅ Initial Dash aplikace
-- ✅ Excel/SPE loading
+- ✅ SPE file loading
 - ✅ NNLS/OLS deconvolution
 - ✅ Interactive Plotly graphs
