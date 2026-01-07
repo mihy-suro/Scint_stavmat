@@ -8,7 +8,7 @@ Interaktivní webová aplikace pro kvantitativní analýzu scintilačních spekt
 
 ## 🎯 Účel aplikace
 
-Tato aplikace slouží k **určení aktivit přirozených radionuklidů** (Ra-226, K-40, Th-232) ve stavebních materiálech měřených scintilačními detektory (CeBr₃, NaI(Tl)). Hlavní výhodou oproti HPGe spektrometrii je **rychlost měření** díky vyšší účinnosti detektorů, což umožňuje screeningovou analýzu velkého počtu vzorků.
+Tato aplikace slouží k **určení aktivit přirozených radionuklidů** (Ra-226, K-40, Th-232) ve stavebních materiálech měřených scintilačními detektory (CeBr₃, NaI(Tl)). Hlavní výhodou oproti HPGe spektrometrii je **rychlost měření** díky vyšší účinnosti NaI(Tl) detektoru.
 
 ### Matematický princip
 
@@ -22,7 +22,7 @@ kde:
 - **y_measured**: Naměřené spektrum vzorku [counts/s v každém kanálu]
 - **S_Ra, S_K, S_Th**: Normalizovaná kalibrační spektra etalonů Ra-226, K-40, Th-232
 - **S_BG**: Spektrum pozadí detektoru
-- **c₁, c₂, c₃, c₄**: Hledané koeficienty (úměrné aktivitám)
+- **c₁, c₂, c₃, c₄**: Hledané koeficienty (úměrné aktivitám ve vzorku)
 - **ε**: Reziduální chyba (statistický šum)
 
 Soustava se řeší pomocí **NNLS** (Non-Negative Least Squares) nebo **OLS** (Ordinary Least Squares) regrese. Pro zlepšení přesnosti se spektrum rozděluje do energetických oblastí (ROI - Regions of Interest) a každá oblast se analyzuje samostatně.
@@ -151,15 +151,21 @@ app/
 
 ### 1. **Rebinning spekter**
 
-Lineární transformace kanálů z měřeného spektra do referenční mřížky:
+Mapování měřeného spektra do referenční kanálové mřížky pomocí energetické kalibrace:
 
 ```
-ch_ref = a0 + a1 * ch_sample
+E = a0 + a1*CH + a2*CH²
 ```
 
-- **Zachování počtů**: Částečné počty se redistribuují mezi sousední kanály pomocí lineární interpolace
-- **Implementace**: `scripts/utils.py::rebin_channels()`
-- **Účel**: Umožňuje dekonvoluci s kalibračními spektry v jednotné kanálové mřížce
+**Důvod**: Dekonvoluce je **lineární úloha**, která vyžaduje, aby referenční (kalibrační) a měřená spektra byla **kanálově zarovnaná**. Bez rebinningu by se píky v maticové soustavě `y = X·β` nenacházely ve stejných kanálech, což vede k selhání regrese.
+
+**Účel**: Zarovnat spektra do společné kanálové mřížky i při mírně odlišné energetické kalibraci mezi měřením a etalony.
+
+**Metody**: 
+- Lineární channel mapping (rychlé, `a2 = 0`)
+- Kvadratická kalibrace přes polynom (přesnější pro širší energetický rozsah)
+
+**Zachování počtů**: Algoritmus redistribuuje částečné počty mezi sousední kanály pomocí interpolace.
 
 ### 2. **Dekonvoluce spektra**
 
@@ -220,6 +226,10 @@ Automatické hledání optimálních parametrů `(a0, a1)` minimalizací MSE:
 ```python
 (a0*, a1*) = argmin MSE(rebin(a0, a1))
 ```
+
+**Optimalizovaná transformace**: Lineární `ch_ref = a0 + a1*ch_sample` (2 parametry)
+
+> **Poznámka**: I když energetická kalibrace může být kvadratická (`E = a0 + a1*CH + a2*CH²`), optimalizace channel mappingu v aplikaci pracuje pouze s lineární transformací pro rychlost a stabilitu.
 
 **Metody**:
 - `L-BFGS-B`: Limited-memory BFGS s bounds (default) - efektivní gradient-based optimalizace
@@ -325,12 +335,14 @@ Aplikace běží na `http://localhost:8051`
 ### Krok 2: Kalibrace
 
 **Energetická kalibrace**:
-- Zadat známé energie píků [keV]
+- Zadat známé energie píků [keV] - tlačítka: 186, 238, 295, 352, 609, 1461, 1764, 2614
 - Kliknout na odpovídající píky ve spektru
-- Fit polynomu: `E = a0 + a1*CH + a2*CH²`
+- Tlačítko **"Vypočítat"** provede fit polynomu: `E = a0 + a1*CH + a2*CH²`
 - Koeficienty se použijí pro:
   - **Display** (osy grafu v keV)
   - **Startovní vektor** pro optimalizaci channel mappingu
+- Tlačítko **"Reset vše"** vymaže všechny označené píky
+- Tlačítka **×** vymažou jednotlivé píky
 
 **Channel mapping**:
 - Defaultně: identity mapping `(0.0, 1.0)`
@@ -345,12 +357,13 @@ Aplikace běží na `http://localhost:8051`
 
 ### Krok 4: Analýza
 
-1. Vybrat vzorek z dropdownu
+1. Vybrat vzorek z dropdownu (nebo použít **"Předchozí"/"Další"** tlačítka pro navigaci)
 2. Nastavit parametry:
    - Regression method: NNLS / OLS
    - Use background: ON / OFF
    - Optimize calibration: ON / OFF (pro každou ROI zvlášť)
-3. Kliknout **"Run Analysis"**
+3. Tlačítko **"Analyzovat"** - spustí analýzu aktuálního vzorku
+4. Tlačítko **"+ další"** - analyzuje aktuální vzorek a automaticky přejde na další
 
 ### Krok 5: Výsledky
 
@@ -360,8 +373,9 @@ Aplikace běží na `http://localhost:8051`
 
 ### Krok 6: Export
 
-- Kliknout **"Export to Excel"**
-- Stáhne se soubor s kompletními výsledky
+- Tlačítko **🗑️** (trash) - smazat vybrané řádky z tabulky výsledků
+- Tlačítko **⬇️** (download) - export všech výsledků do Excel
+- Stáhne se soubor `accumulated_results_YYYYMMDD_HHMMSS.xlsx`
 
 ---
 
