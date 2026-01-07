@@ -79,6 +79,15 @@ from .plot_components import (
     calculate_display_energy
 )
 
+# Peak analysis for Ra-226 @ 186 keV
+from .peak_analysis import (
+    calculate_ra226_from_186kev_peak,
+    find_peak_in_roi,
+    calculate_net_area,
+    smooth_spectrum,
+    energy_to_channel
+)
+
 __all__ = [
     # Analysis
     'prepare_sample_data',
@@ -131,4 +140,11 @@ __all__ = [
     'configure_spectrum_layout',
     'create_placeholder_figure',
     'create_error_figure',
+    
+    # Peak analysis
+    'calculate_ra226_from_186kev_peak',
+    'find_peak_in_roi',
+    'calculate_net_area',
+    'smooth_spectrum',
+    'energy_to_channel',
 ]

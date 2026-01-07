@@ -50,8 +50,9 @@ from utils import (
 
 
 # Constants
-CALIBRATION_ENERGIES = [238, 295, 352, 609, 1461, 1764.494, 2614.511]
+CALIBRATION_ENERGIES = [186, 238, 295, 352, 609, 1461, 1764.494, 2614.511]
 ENERGY_MAP = {
+    'select-e-186': '186',
     'select-e-238': '238',
     'select-e-295': '295',
     'select-e-352': '352',

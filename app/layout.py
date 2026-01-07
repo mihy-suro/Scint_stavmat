@@ -145,6 +145,15 @@ def create_samples_tab_layout():
                             ]),
                             html.Tbody([
                                 html.Tr([
+                                    html.Td(dbc.Button("186", id='select-e-186', size="sm", color="light", 
+                                                      className="w-100", style={'textAlign': 'left'})),
+                                    html.Td([
+                                        html.Span(id='peak-ch-186', children="-", className="ms-2"),
+                                        dbc.Button("×", id='reset-peak-186', size="sm", color="link", 
+                                                  className="p-0 ms-2 text-danger", style={'fontSize': '14px'})
+                                    ])
+                                ], id='row-186', style={'cursor': 'pointer'}),
+                                html.Tr([
                                     html.Td(dbc.Button("238", id='select-e-238', size="sm", color="light", 
                                                       className="w-100", style={'textAlign': 'left'})),
                                     html.Td([
@@ -239,17 +248,32 @@ def create_samples_tab_layout():
             
             # Middle panel - graphs
             dbc.Col([
-                # Full spectrum (top)
-                dbc.Card([
-                    dbc.CardHeader(id='spectrum-plot-full-header', children="📊 Celé spektrum"),
-                    dbc.CardBody([
-                        dcc.Loading(
-                            id="loading-graph-full",
-                            type="default",
-                            children=dcc.Graph(id='spectrum-plot-full', style={'height': '300px'})
-                        )
-                    ])
-                ], className="mb-3"),
+                # Full spectrum and Ra-186 peak (side by side)
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader(id='spectrum-plot-full-header', children="📊 Celé spektrum"),
+                            dbc.CardBody([
+                                dcc.Loading(
+                                    id="loading-graph-full",
+                                    type="default",
+                                    children=dcc.Graph(id='spectrum-plot-full', style={'height': '300px'})
+                                )
+                            ])
+                        ], className="mb-3"),
+                    ], width=8),
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("📍 Ra-226 @ 186 keV"),
+                            dbc.CardBody([
+                                dcc.Graph(
+                                    id='spectrum-plot-186', 
+                                    style={'height': '300px'}
+                                )
+                            ])
+                        ], className="mb-3"),
+                    ], width=4),
+                ]),
                 
                 # ROI plots (side by side)
                 dbc.Row([
@@ -273,30 +297,34 @@ def create_samples_tab_layout():
                     ], width=6),
                 ], className="mb-3"),
                 
-                # Calibration graph (moved from left panel)
-                dbc.Card([
-                    dbc.CardHeader("📈 Energetická kalibrace"),
-                    dbc.CardBody([
-                        dcc.Graph(id='calibration-fit-plot', config={'displayModeBar': False}, style={'height': '250px'})
-                    ], className="p-2")
-                ], className="mb-3"),
-                
-                # Status window
-                dbc.Card([
-                    dbc.CardHeader("📢 Status"),
-                    dbc.CardBody([
-                        html.Div(id='status-log', children=[
-                            html.Small("Připraveno...", className="text-muted")
-                        ], style={
-                            'height': '80px',
-                            'overflowY': 'auto',
-                            'fontSize': '12px',
-                            'backgroundColor': '#f8f9fa',
-                            'padding': '8px',
-                            'borderRadius': '4px'
-                        })
-                    ], className="p-2")
-                ]),
+                # Calibration graph + Status on one row (50:50)
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("📈 Energetická kalibrace"),
+                            dbc.CardBody([
+                                dcc.Graph(id='calibration-fit-plot', config={'displayModeBar': False}, style={'height': '100%'})
+                            ], className="p-2", style={'height': '240px'})
+                        ], style={'height': '100%'})
+                    ], width=6),
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("📢 Status"),
+                            dbc.CardBody([
+                                html.Div(id='status-log', children=[
+                                    html.Small("Připraveno...", className="text-muted")
+                                ], style={
+                                    'height': '100%',
+                                    'overflowY': 'auto',
+                                    'fontSize': '12px',
+                                    'backgroundColor': '#f8f9fa',
+                                    'padding': '8px',
+                                    'borderRadius': '4px'
+                                })
+                            ], className="p-2", style={'height': '240px'})
+                        ], style={'height': '100%'})
+                    ], width=6),
+                ], className="mb-3", style={'alignItems': 'stretch'}),
             ], width=7),
             
             # Right panel - analysis controls, results and status
@@ -418,22 +446,88 @@ def create_samples_tab_layout():
                         dcc.Store(id='roi1-range', data=[138, 573]),
                         dcc.Store(id='roi2-range', data=[504, 1182]),
                         
+                        # Stores for 186 keV (updated by 4-value slider)
+                        dcc.Store(id='roi-186-range', data=[100, 160]),  # Zoom range
+                        dcc.Store(id='peak-186-roi-left', data=120),     # Peak left boundary
+                        dcc.Store(id='peak-186-roi-right', data=140),    # Peak right boundary
+                        
+                        # 186 keV Peak Analysis Panel (slider + interference factor)
+                        dbc.Card([
+                            dbc.CardHeader("☢️ Ra-226 @ 186 keV", className="p-2"),
+                            dbc.CardBody([
+                                # ROI Slider (4 values: zoom_left, peak_left, peak_right, zoom_right)
+                                html.Label("ROI (zoom | peak):", className="fw-bold small mb-1"),
+                                dcc.RangeSlider(
+                                    id='roi-186-slider',
+                                    min=0,
+                                    max=300,
+                                    step=1,
+                                    value=[100, 120, 140, 160],
+                                    marks={i: str(i) for i in range(0, 301, 50)},
+                                    tooltip={"placement": "bottom", "always_visible": True},
+                                    allowCross=False,
+                                    pushable=5,
+                                    className="mb-2"
+                                ),
+                                
+                                # Live net area display + interference factor on one row
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Div(id='live-186-netarea', children="Net: - | CH: -",
+                                                 className="small text-muted")
+                                    ], width=7),
+                                    dbc.Col([
+                                        dbc.InputGroup([
+                                            dbc.InputGroupText("×", style={"fontSize": "11px", "padding": "2px 4px"}),
+                                            dbc.Input(
+                                                id='input-186-interference',
+                                                type="number",
+                                                value=0.575,
+                                                step=0.001,
+                                                min=0.1,
+                                                max=1.0,
+                                                size="sm",
+                                                style={'width': '60px', 'padding': '2px 4px', 'fontSize': '11px'}
+                                            ),
+                                        ], size="sm")
+                                    ], width=5),
+                                ], className="align-items-center"),
+                            ], className="p-2")
+                        ], className="mb-3", color="warning", outline=True),
+                        
+                        # Store for 186 keV analysis results
+                        dcc.Store(id='result-186-data', data=None),
+                        
                         # Analysis status/warning display
                         html.Div(id='analysis-status', className="mt-3"),
                         
-                        # Analyze button with loading
+                        # Analyze buttons side by side
                         dcc.Loading(
                             id="loading-analysis",
                             type="default",
                             children=[
-                                dbc.Button(
-                                    [html.I(className="fas fa-play me-2"), "Analyzovat"],
-                                    id='run-analysis',
-                                    color='primary',
-                                    size='lg',
-                                    className='w-100 mt-3',
-                                    disabled=True
-                                ),
+                                dbc.Row([
+                                    dbc.Col([
+                                        dbc.Button(
+                                            [html.I(className="fas fa-play me-1"), "Analyzovat"],
+                                            id='run-analysis',
+                                            color='primary',
+                                            size='md',
+                                            className='w-100',
+                                            disabled=True
+                                        ),
+                                    ], width=6),
+                                    dbc.Col([
+                                        dbc.Button(
+                                            [html.I(className="fas fa-forward me-1"), "+ další"],
+                                            id='run-analysis-next',
+                                            color='success',
+                                            size='md',
+                                            className='w-100',
+                                            disabled=True
+                                        ),
+                                    ], width=6),
+                                ], className="mt-3"),
                             ],
                             parent_className='w-100'
                         ),
@@ -495,6 +589,8 @@ def create_samples_tab_layout():
                                 {'name': 'ID vzorku', 'id': 'sample_id'},
                                 {'name': 'Ra (Bq)', 'id': 'Ra'},
                                 {'name': 'Ra σ (Bq)', 'id': 'Ra_err'},
+                                {'name': 'Ra₁₈₆ (Bq)', 'id': 'Ra_186'},
+                                {'name': 'Ra₁₈₆ σ', 'id': 'Ra_186_err'},
                                 {'name': 'K (Bq)', 'id': 'K'},
                                 {'name': 'K σ (Bq)', 'id': 'K_err'},
                                 {'name': 'Th (Bq)', 'id': 'Th'},

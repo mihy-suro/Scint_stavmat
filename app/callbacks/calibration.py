@@ -26,6 +26,7 @@ def register_calibration_callbacks(app):
     # ==================== MANUAL PEAK CALIBRATION ====================
     @app.callback(
         [Output('peak-calibration-data', 'data'),
+         Output('select-e-186', 'color'),
          Output('select-e-238', 'color'),
          Output('select-e-295', 'color'),
          Output('select-e-352', 'color'),
@@ -34,6 +35,7 @@ def register_calibration_callbacks(app):
          Output('select-e-1764', 'color'),
          Output('select-e-2614', 'color')],
         [Input('spectrum-plot-full', 'clickData'),
+         Input('select-e-186', 'n_clicks'),
          Input('select-e-238', 'n_clicks'),
          Input('select-e-295', 'n_clicks'),
          Input('select-e-352', 'n_clicks'),
@@ -46,7 +48,7 @@ def register_calibration_callbacks(app):
          State('excel-data', 'data'),
          State('current-sample-calib', 'data')]
     )
-    def handle_peak_calibration(click_data, n238, n295, n352, n609, n1461, n1764, n2614, calib_data, selected_sample, excel_data, current_sample_calib):
+    def handle_peak_calibration(click_data, n186, n238, n295, n352, n609, n1461, n1764, n2614, calib_data, selected_sample, excel_data, current_sample_calib):
         """Handle energy selection and graph clicks for manual calibration"""
         if not callback_context.triggered:
             raise PreventUpdate
@@ -58,8 +60,8 @@ def register_calibration_callbacks(app):
             calib_data = {'peaks': {}, 'active_energy': None}
         
         # Default button colors
-        colors = ['light', 'light', 'light', 'light', 'light', 'light', 'light']
-        energy_list = ['238', '295', '352', '609', '1461', '1764', '2614']
+        colors = ['light', 'light', 'light', 'light', 'light', 'light', 'light', 'light']
+        energy_list = ['186', '238', '295', '352', '609', '1461', '1764', '2614']
         
         # Mark assigned energies as success (green)
         for i, e in enumerate(energy_list):
@@ -124,7 +126,8 @@ def register_calibration_callbacks(app):
     
     
     @app.callback(
-        [Output('peak-ch-238', 'children'),
+        [Output('peak-ch-186', 'children'),
+         Output('peak-ch-238', 'children'),
          Output('peak-ch-295', 'children'),
          Output('peak-ch-352', 'children'),
          Output('peak-ch-609', 'children'),
@@ -137,10 +140,10 @@ def register_calibration_callbacks(app):
     def update_peak_displays(calib_data):
         """Update channel displays in table"""
         if not calib_data or 'peaks' not in calib_data:
-            return "-", "-", "-", "-", "-", "-", "-", True
+            return "-", "-", "-", "-", "-", "-", "-", "-", True
         
         peaks = calib_data['peaks']
-        values = [peaks.get(e, '-') for e in ['238', '295', '352', '609', '1461', '1764', '2614']]
+        values = [peaks.get(e, '-') for e in ['186', '238', '295', '352', '609', '1461', '1764', '2614']]
         
         # Enable calculate button if at least 2 peaks defined
         num_peaks = sum(1 for v in values if v != '-')
@@ -396,7 +399,8 @@ def register_calibration_callbacks(app):
     # ==================== INDIVIDUAL PEAK RESET ====================
     @app.callback(
         Output('peak-calibration-data', 'data', allow_duplicate=True),
-        [Input('reset-peak-238', 'n_clicks'),
+        [Input('reset-peak-186', 'n_clicks'),
+         Input('reset-peak-238', 'n_clicks'),
          Input('reset-peak-295', 'n_clicks'),
          Input('reset-peak-352', 'n_clicks'),
          Input('reset-peak-609', 'n_clicks'),
@@ -406,7 +410,7 @@ def register_calibration_callbacks(app):
         State('peak-calibration-data', 'data'),
         prevent_initial_call=True
     )
-    def reset_individual_peak(n238, n295, n352, n609, n1461, n1764, n2614, calib_data):
+    def reset_individual_peak(n186, n238, n295, n352, n609, n1461, n1764, n2614, calib_data):
         """Reset individual calibration peak when X button clicked"""
         if not callback_context.triggered:
             raise PreventUpdate
@@ -415,6 +419,7 @@ def register_calibration_callbacks(app):
         
         # Map reset button ID to energy
         reset_map = {
+            'reset-peak-186': '186',
             'reset-peak-238': '238',
             'reset-peak-295': '295',
             'reset-peak-352': '352',

@@ -24,9 +24,14 @@ CeBr3:
     roi1: [138, 573]      # Ra/Th region (~200-800 keV)
     roi2: [504, 1182]     # K-40 region (~700-1640 keV)
   
-  roi_ranges:
-    roi1: [138, 573]      # Ra/Th region (~200-800 keV)
-    roi2: [504, 1182]     # K-40 region (~700-1640 keV)
+  # Peak analysis configuration for Ra-226 @ 186 keV
+  peak_analysis:
+    ra_186_energy: 186.0    # Energy of Ra-226 photopeak [keV]
+    roi_half_width: 15      # Half-width of integration ROI [channels]
+    search_width: 10        # Width for peak search around expected position [channels]
+    smooth_window: 5        # Window size for spectrum smoothing (odd number)
+    bg_margin: 5            # Channels at each edge for background estimation
+    ra_186_correction: 0.575  # U-235 interference correction (57.5% Ra-226)
   
   processing:
     cut_channel_left: 0   # Levý cutoff kanál (pod tímto se data vynulují)
@@ -59,6 +64,20 @@ NaI(Tl):
   roi_ranges:
     roi1: [170, 1030]     # Ra/Th region
     roi2: [500, 1245]     # K-40 region
+  
+  # Peak analysis configuration for Ra-226 @ 186 keV
+  peak_analysis:
+    ra_186_energy: 186.0    # Energy of Ra-226 photopeak [keV]
+    roi_half_width: 15      # Half-width of integration ROI [channels]
+    search_width: 10        # Width for peak search around expected position [channels]
+    smooth_window: 5        # Window size for spectrum smoothing (odd number)
+    bg_margin: 5            # Channels at each edge for background estimation
+    ra_186_correction: 0.575  # U-235 interference correction (57.5% Ra-226)
+  
+  # Pre-calibrated 186 keV peak area (from calibrate_186_peak.py)
+  peak_calibration:
+    ra_186_net_cps_per_bq: 0.003165  # Net CPS per Bq for Ra-226 @ 186 keV
+    ra_186_roi: [113, 143]           # ROI channels used for calibration
   
   processing:
     cut_channel_left: 0

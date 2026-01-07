@@ -25,6 +25,9 @@ from utils import (
     create_status_message
 )
 
+# Import peak analysis for Ra-226 @ 186 keV
+from utils.peak_analysis import calculate_ra226_from_186kev_peak
+
 
 def register_analysis_callbacks(app):
     """Register analysis-related callbacks"""
@@ -58,7 +61,8 @@ def register_analysis_callbacks(app):
          Output('manual-a2', 'value', allow_duplicate=True),
          Output('status-log', 'children', allow_duplicate=True),
          Output('run-analysis', 'children', allow_duplicate=True),
-         Output('run-analysis', 'color', allow_duplicate=True)],
+         Output('run-analysis', 'color', allow_duplicate=True),
+         Output('result-186-data', 'data', allow_duplicate=True)],
         Input('run-analysis', 'n_clicks'),
         [State('excel-data', 'data'),
          State('sample-selector', 'value'),
@@ -74,14 +78,18 @@ def register_analysis_callbacks(app):
          State('use-background', 'value'),
          State('accumulated-results', 'data'),
          State('roi1-range', 'data'),
-         State('roi2-range', 'data')],
+         State('roi2-range', 'data'),
+         State('peak-186-roi-left', 'data'),
+         State('peak-186-roi-right', 'data'),
+         State('input-186-interference', 'value')],
         prevent_initial_call=True
     )
     def run_analysis(n_clicks, data, selected_sample, ref_a0, ref_a1, ref_a2,
                      current_sample_calib, poly_degree,
                      optimize_value, opt_method, max_iter, regression_method, use_bg_checkbox,
-                     accumulated_results, roi1_range, roi2_range):
-        """Run analysis for selected sample"""
+                     accumulated_results, roi1_range, roi2_range, peak_186_roi_left, peak_186_roi_right,
+                     interference_factor):
+        """Run analysis for selected sample including 186 keV peak analysis"""
         if data is None or selected_sample is None:
             raise PreventUpdate
         
@@ -104,6 +112,9 @@ def register_analysis_callbacks(app):
             
             # Use shared analysis function (K always from roi2)
             # Pass reference energy calibration for channel mapping derivation
+            # Create peak-186 ROI from left/right boundaries
+            peak_186_roi = [peak_186_roi_left or 113, peak_186_roi_right or 143]
+            
             results, calib_method, opt_info, channel_mapping = analyze_single_sample(
                 selected_sample, data, ref_mapping, current_sample_calib,
                 poly_degree, optimize_value, opt_method,
@@ -113,8 +124,57 @@ def register_analysis_callbacks(app):
                 enable_roi=use_roi,
                 k_source_roi=k_source_roi,
                 ref_a0=ref_a0,
-                ref_a1=ref_a1
+                ref_a1=ref_a1,
+                peak_186_roi=peak_186_roi
             )
+            
+            # ==================== 186 keV Peak Analysis (integrated) ====================
+            ra_peak_result = None
+            try:
+                # Validate interference factor
+                if interference_factor is None or interference_factor <= 0:
+                    interference_factor = 0.575
+                
+                # Get sample data for 186 keV analysis
+                sample_rebinned_counts = np.array(results.get('sample_rebinned', []))
+                sample_live_time = results.get('sample_live_time', None)
+                
+                if sample_live_time and len(sample_rebinned_counts) > 0:
+                    sample_cps = sample_rebinned_counts / sample_live_time
+                    
+                    # Get pre-calibrated net_cps_per_bq from config
+                    peak_calibration = data.get('peak_calibration', {})
+                    precalib_net_cps_per_bq = peak_calibration.get('ra_186_net_cps_per_bq')
+                    
+                    if precalib_net_cps_per_bq:
+                        # Energy calibration
+                        energy_calib = [ref_a0 or 9.6229, ref_a1 or 1.3793, ref_a2 or 0]
+                        
+                        # Config
+                        config_186 = data.get('peak_analysis_config', {}).copy()
+                        roi_left = int(peak_186_roi_left or 113)
+                        roi_right = int(peak_186_roi_right or 143)
+                        config_186['manual_roi'] = [roi_left, roi_right]
+                        
+                        # Calculate Ra-226 from 186 keV peak
+                        ra_peak_result = calculate_ra226_from_186kev_peak(
+                            sample_cps=sample_cps,
+                            energy_calib=energy_calib,
+                            config=config_186,
+                            manual_roi=[roi_left, roi_right],
+                            sample_live_time=sample_live_time,
+                            precalib_net_cps_per_bq=precalib_net_cps_per_bq,
+                            interference_factor=interference_factor
+                        )
+                        
+                        if ra_peak_result:
+                            ra_peak_result['sample_live_time'] = sample_live_time
+                            results['ra_peak_186'] = ra_peak_result
+                            print(f"[186 Analysis] Ra₁₈₆: {ra_peak_result.get('activity', 0):.1f} ± {ra_peak_result.get('uncertainty', 0):.1f} Bq")
+                    else:
+                        print("[186 Analysis] Skipped - no peak_calibration.ra_186_net_cps_per_bq in config")
+            except Exception as e186:
+                print(f"[186 Analysis] Warning: {str(e186)}")
             
             # Add to accumulated results
             if accumulated_results is None:
@@ -158,6 +218,15 @@ def register_analysis_callbacks(app):
                     f"🎯 ROI #2: ch {roi2_range[0]:.0f}-{roi2_range[1]:.0f} (~{roi2_energy_min:.0f}-{roi2_energy_max:.0f} keV, K-40)"
                 ])
             
+            # Add 186 keV result to status if available
+            if ra_peak_result:
+                act = ra_peak_result.get('activity', 0)
+                unc = ra_peak_result.get('uncertainty', 0)
+                status_lines.extend([
+                    html.Br(),
+                    f"☢️ Ra₁₈₆: {act:.1f} ± {unc:.1f} Bq"
+                ])
+            
             if opt_info:
                 status_lines.extend([html.Br(), opt_info])
             
@@ -165,10 +234,10 @@ def register_analysis_callbacks(app):
                 html.Small(status_lines, className="text-success")
             ])
             
-            # Don't update manual calibration inputs - they contain energy calibration (a0, a1, a2)
-            # Channel mapping from optimization is stored in results['channel_mapping']
-            # Updating manual inputs with channel mapping values would corrupt future non-optimized analyses
-            return results, accumulated_results, no_update, no_update, no_update, status_msg, [html.I(className="fas fa-check me-2"), "Hotovo!"], 'success'
+            # Return results (including 186 keV in result-186-data for graph)
+            return (results, accumulated_results, no_update, no_update, no_update, status_msg, 
+                    [html.I(className="fas fa-check me-2"), "Hotovo!"], 'success',
+                    ra_peak_result)
             
         except Exception as e:
             print(f"\n!!! ERROR in analysis: {str(e)} !!!")
@@ -182,7 +251,43 @@ def register_analysis_callbacks(app):
                 ], className="text-danger")
             ])
             
-            return None, no_update, no_update, no_update, no_update, error_msg, [html.I(className="fas fa-times me-2"), "Chyba"], 'danger'
+            return (None, no_update, no_update, no_update, no_update, error_msg, 
+                    [html.I(className="fas fa-times me-2"), "Chyba"], 'danger',
+                    None)  # No 186 result on error
+    
+    
+    # ==================== RUN ANALYSIS + NEXT SAMPLE ====================
+    @app.callback(
+        [Output('sample-selector', 'value', allow_duplicate=True),
+         Output('run-analysis', 'n_clicks', allow_duplicate=True)],
+        Input('run-analysis-next', 'n_clicks'),
+        [State('sample-selector', 'value'),
+         State('sample-selector', 'options'),
+         State('run-analysis', 'n_clicks')],
+        prevent_initial_call=True
+    )
+    def run_analysis_and_next(n_clicks, current_sample, options, current_run_clicks):
+        """Trigger analysis and then move to next sample"""
+        if not n_clicks or not options or not current_sample:
+            raise PreventUpdate
+        
+        # Find current index
+        sample_values = [opt['value'] for opt in options]
+        try:
+            current_idx = sample_values.index(current_sample)
+        except ValueError:
+            raise PreventUpdate
+        
+        # Trigger analysis by incrementing run-analysis n_clicks
+        new_clicks = (current_run_clicks or 0) + 1
+        
+        # Move to next sample if available
+        if current_idx < len(sample_values) - 1:
+            next_sample = sample_values[current_idx + 1]
+            return next_sample, new_clicks
+        else:
+            # Already at last sample, just run analysis
+            return no_update, new_clicks
     
     
     # ==================== SAMPLE SELECTOR - AUTO, NEXT & PREVIOUS ====================
@@ -383,13 +488,100 @@ def register_analysis_callbacks(app):
         
         return options[new_idx]['value'], prev_disabled, next_disabled
 
-
+    # ==================== AUTO-UPDATE 186 keV ON SLIDER/INTERFERENCE CHANGE ====================
+    @app.callback(
+        [Output('result-186-data', 'data', allow_duplicate=True),
+         Output('accumulated-results', 'data', allow_duplicate=True),
+         Output('sample-results', 'data', allow_duplicate=True)],
+        [Input('peak-186-roi-left', 'data'),
+         Input('peak-186-roi-right', 'data'),
+         Input('input-186-interference', 'value')],
+        [State('sample-results', 'data'),
+         State('excel-data', 'data'),
+         State('sample-selector', 'value'),
+         State('ref-a0', 'value'),
+         State('ref-a1', 'value'),
+         State('ref-a2', 'value'),
+         State('accumulated-results', 'data')],
+        prevent_initial_call=True
+    )
+    def auto_update_186_on_change(roi_left, roi_right, interference_factor,
+                                   sample_results, excel_data, selected_sample,
+                                   ref_a0, ref_a1, ref_a2, accumulated_results):
+        """Auto-update 186 keV analysis when slider or interference factor changes"""
+        # Only update if we have sample results from main analysis
+        if sample_results is None or excel_data is None:
+            raise PreventUpdate
+        
+        # Check if sample has been analyzed (has sample_rebinned)
+        sample_rebinned_counts = sample_results.get('sample_rebinned', [])
+        sample_live_time = sample_results.get('sample_live_time', None)
+        
+        if not sample_rebinned_counts or sample_live_time is None:
+            raise PreventUpdate
+        
+        try:
+            # Validate inputs
+            roi_left = int(roi_left or 113)
+            roi_right = int(roi_right or 143)
+            if interference_factor is None or interference_factor <= 0:
+                interference_factor = 0.575
+            
+            sample_cps = np.array(sample_rebinned_counts) / sample_live_time
+            
+            # Get pre-calibrated value
+            peak_calibration = excel_data.get('peak_calibration', {})
+            precalib_net_cps_per_bq = peak_calibration.get('ra_186_net_cps_per_bq')
+            
+            if not precalib_net_cps_per_bq:
+                raise PreventUpdate
+            
+            # Energy calibration
+            energy_calib = [ref_a0 or 9.6229, ref_a1 or 1.3793, ref_a2 or 0]
+            
+            # Config
+            config = excel_data.get('peak_analysis_config', {}).copy()
+            config['manual_roi'] = [roi_left, roi_right]
+            
+            # Calculate
+            ra_peak_result = calculate_ra226_from_186kev_peak(
+                sample_cps=sample_cps,
+                energy_calib=energy_calib,
+                config=config,
+                manual_roi=[roi_left, roi_right],
+                sample_live_time=sample_live_time,
+                precalib_net_cps_per_bq=precalib_net_cps_per_bq,
+                interference_factor=interference_factor
+            )
+            
+            if ra_peak_result is None:
+                raise PreventUpdate
+            
+            ra_peak_result['sample_live_time'] = sample_live_time
+            
+            # Update sample_results
+            sample_results = copy.deepcopy(sample_results)
+            sample_results['ra_peak_186'] = ra_peak_result
+            
+            # Update accumulated_results
+            if accumulated_results:
+                for i, res in enumerate(accumulated_results):
+                    if isinstance(res, dict) and res.get('sample_name') == selected_sample:
+                        accumulated_results[i]['ra_peak_186'] = ra_peak_result
+                        break
+            
+            return ra_peak_result, accumulated_results, sample_results
+            
+        except Exception as e:
+            print(f"[186 Auto-Update] Error: {str(e)}")
+            raise PreventUpdate
 
 
 def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_calib, 
                           poly_degree, optimize_value, opt_method, 
                           max_iter, regression_method, use_bg_checkbox, roi1_range=None, roi2_range=None, 
-                          enable_roi=False, k_source_roi='roi2', ref_a0=None, ref_a1=None):
+                          enable_roi=False, k_source_roi='roi2', ref_a0=None, ref_a1=None,
+                          peak_186_roi=None):
     """
     Analyze a single sample - refactored to use utility modules.
     
@@ -408,6 +600,7 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
         roi2_range: [min_ch, max_ch] for ROI2 (optional)
         enable_roi: Whether to use dual ROI analysis
         k_source_roi: 'roi1' or 'roi2' - which ROI provides K coefficient (default: 'roi2')
+        peak_186_roi: [left_ch, right_ch] for Ra-226 @ 186 keV peak ROI boundaries
         ref_a0: Reference detector energy calibration a0 (keV offset)
         ref_a1: Reference detector energy calibration a1 (keV/channel)
     
@@ -443,33 +636,92 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
         sample_spectrum_counts, sample_live_time, _ = get_sample_data(sample_name, excel_data)
         sample_spectrum_cps = sample_spectrum_counts / sample_live_time if sample_live_time > 0 else sample_spectrum_counts * 0
         
-        # Determine ROI for optimization (union of both ROIs if dual-ROI enabled)
-        optimization_roi_channels = None
+        # SEPARÁTNÍ OPTIMALIZACE PRO KAŽDOU ROI
         if enable_roi and roi1_range and roi2_range:
-            optimization_roi_channels = [
-                min(roi1_range[0], roi2_range[0]),
-                max(roi1_range[1], roi2_range[1])
-            ]
-        
-        # Optimize channel mapping
-        channel_mapping, opt_result = optimize_channel_mapping_wrapper(
-            X_calib, sample_spectrum_cps, initial_channel_mapping,
-            roi_channels=optimization_roi_channels,
-            method=opt_method or 'L-BFGS-B',
-            maxiter=max_iter or 1000
-        )
-        
-        calib_method = f"Opt: ch_offset={channel_mapping[0]:.2f}, gain={channel_mapping[1]:.4f}"
-        opt_info = f"{opt_result['method']}, iter={opt_result['iterations']}, R²={opt_result['final_r2']:.6f}"
+            # Optimize channel mapping for ROI1 (Ra/Th)
+            print(f"\n{'='*60}")
+            print(f"OPTIMALIZACE ROI #1 (Ra/Th): ch {roi1_range[0]}-{roi1_range[1]}")
+            print(f"{'='*60}")
+            channel_mapping_roi1, opt_result_roi1 = optimize_channel_mapping_wrapper(
+                X_calib, sample_spectrum_cps, initial_channel_mapping,
+                roi_channels=roi1_range,
+                method=opt_method or 'L-BFGS-B',
+                maxiter=max_iter or 1000
+            )
+            
+            # Optimize channel mapping for ROI2 (K-40)
+            print(f"\n{'='*60}")
+            print(f"OPTIMALIZACE ROI #2 (K-40): ch {roi2_range[0]}-{roi2_range[1]}")
+            print(f"{'='*60}")
+            channel_mapping_roi2, opt_result_roi2 = optimize_channel_mapping_wrapper(
+                X_calib, sample_spectrum_cps, initial_channel_mapping,
+                roi_channels=roi2_range,
+                method=opt_method or 'L-BFGS-B',
+                maxiter=max_iter or 1000
+            )
+            
+            # Use ROI1 mapping as primary (for display purposes)
+            channel_mapping = channel_mapping_roi1
+            calib_method = (f"Opt ROI1: offset={channel_mapping_roi1[0]:.2f}, gain={channel_mapping_roi1[1]:.4f} | "
+                           f"ROI2: offset={channel_mapping_roi2[0]:.2f}, gain={channel_mapping_roi2[1]:.4f}")
+            opt_info = (f"ROI1: R²={opt_result_roi1['final_r2']:.6f} | "
+                       f"ROI2: R²={opt_result_roi2['final_r2']:.6f}")
+        else:
+            # Non-ROI mode: single optimization over full spectrum
+            channel_mapping, opt_result = optimize_channel_mapping_wrapper(
+                X_calib, sample_spectrum_cps, initial_channel_mapping,
+                roi_channels=None,
+                method=opt_method or 'L-BFGS-B',
+                maxiter=max_iter or 1000
+            )
+            channel_mapping_roi1 = channel_mapping
+            channel_mapping_roi2 = channel_mapping
+            calib_method = f"Opt: ch_offset={channel_mapping[0]:.2f}, gain={channel_mapping[1]:.4f}"
+            opt_info = f"{opt_result['method']}, iter={opt_result['iterations']}, R²={opt_result['final_r2']:.6f}"
     else:
         channel_mapping = initial_channel_mapping
+        channel_mapping_roi1 = initial_channel_mapping
+        channel_mapping_roi2 = initial_channel_mapping
         opt_info = f"Manuální režim: a₀={sample_a0:.4f}, a₁={sample_a1:.4f} → offset={channel_mapping[0]:.2f}, gain={channel_mapping[1]:.4f}"
         calib_method = f"Manual: ch_offset={channel_mapping[0]:.2f}, gain={channel_mapping[1]:.4f}"
     
     # Step 2: Prepare sample data (normalize, rebin)
-    sample_rebinned_cps, sample_rebinned_counts, sample_live_time, _ = prepare_sample_data(
-        sample_name, excel_data, channel_mapping, print_diagnostics=True
-    )
+    # For ROI mode: rebin separately for each ROI with its own mapping
+    from scripts.utils import rebin_channels
+    
+    if enable_roi and roi1_range and roi2_range:
+        # Get raw sample data
+        sample_spectrum_counts_raw, sample_live_time, _ = get_sample_data(sample_name, excel_data)
+        sample_spectrum_cps_raw = sample_spectrum_counts_raw / sample_live_time if sample_live_time > 0 else sample_spectrum_counts_raw * 0
+        
+        # Number of reference channels
+        calib_df = pd.DataFrame(excel_data['calibration'])
+        n_ref = len(calib_df)
+        
+        # Rebin for ROI1 (Ra/Th)
+        sample_rebinned_roi1_cps = rebin_channels(channel_mapping_roi1, sample_spectrum_cps_raw, n_ref)
+        sample_rebinned_roi1_counts = rebin_channels(channel_mapping_roi1, sample_spectrum_counts_raw, n_ref)
+        
+        # Rebin for ROI2 (K-40)
+        sample_rebinned_roi2_cps = rebin_channels(channel_mapping_roi2, sample_spectrum_cps_raw, n_ref)
+        sample_rebinned_roi2_counts = rebin_channels(channel_mapping_roi2, sample_spectrum_counts_raw, n_ref)
+        
+        print(f"\n🔄 SEPARÁTNÍ REBINOVÁNÍ:")
+        print(f"  ROI1 mapping: offset={channel_mapping_roi1[0]:.2f}, gain={channel_mapping_roi1[1]:.4f}")
+        print(f"  ROI2 mapping: offset={channel_mapping_roi2[0]:.2f}, gain={channel_mapping_roi2[1]:.4f}")
+        
+        # For backward compatibility, use ROI1 rebinned as primary
+        sample_rebinned_cps = sample_rebinned_roi1_cps
+        sample_rebinned_counts = sample_rebinned_roi1_counts
+    else:
+        # Standard single rebinning
+        sample_rebinned_cps, sample_rebinned_counts, sample_live_time, _ = prepare_sample_data(
+            sample_name, excel_data, channel_mapping, print_diagnostics=True
+        )
+        sample_rebinned_roi1_cps = sample_rebinned_cps
+        sample_rebinned_roi2_cps = sample_rebinned_cps
+        sample_rebinned_roi1_counts = sample_rebinned_counts
+        sample_rebinned_roi2_counts = sample_rebinned_counts
     
     # Step 3: Build calibration matrix (with optional background)
     has_background_in_data = has_background_data(excel_data)
@@ -479,9 +731,9 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
     
     # Step 4: Perform regression (dual ROI or standard)
     if enable_roi and roi1_range and roi2_range:
-        # Dual ROI analysis
+        # Dual ROI analysis - pass separate rebinned spectra for each ROI
         results_method, results_roi1, results_roi2, mask_roi1, mask_roi2 = perform_dual_roi_regression(
-            X, sample_rebinned_cps, roi1_range, roi2_range,
+            X, sample_rebinned_roi1_cps, sample_rebinned_roi2_cps, roi1_range, roi2_range,
             regression_method, component_names, k_source_roi,
             print_diagnostics=True
         )
@@ -552,6 +804,10 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
             'enabled': True,
             'roi1_range': roi1_range,
             'roi2_range': roi2_range,
+            'roi1_channel_mapping': channel_mapping_roi1,
+            'roi2_channel_mapping': channel_mapping_roi2,
+            'roi1_sample_rebinned': sample_rebinned_roi1_counts.tolist(),
+            'roi2_sample_rebinned': sample_rebinned_roi2_counts.tolist(),
             'roi1_components': ['Ra', 'Th'],
             'roi2_components': ['K'],
             'roi1_fitted': roi1_fitted.tolist(),
@@ -592,6 +848,10 @@ def analyze_single_sample(sample_name, excel_data, ref_calib, current_sample_cal
         calib_method, enable_roi, roi1_range, roi2_range,
         roi_data, use_background
     )
+    
+    # Ra-226 @ 186 keV peak analysis is now done separately via "Analyzovat 186" button
+    # Initialize as None - will be filled when user clicks the 186 keV analysis button
+    results['ra_peak_186'] = None
     
     return results, calib_method, opt_info, channel_mapping
 

@@ -24,6 +24,7 @@ def register_data_loading_callbacks(app):
     @app.callback(
         [Output('excel-data', 'data'),
          Output('run-analysis', 'disabled', allow_duplicate=True),
+         Output('run-analysis-next', 'disabled', allow_duplicate=True),
          Output('ref-a0', 'value'),
          Output('ref-a1', 'value'),
          Output('ref-a2', 'value'),
@@ -75,6 +76,7 @@ def register_data_loading_callbacks(app):
             return (
                 excel_data,
                 True,  # Disable analyze button until sample loaded
+                True,  # Disable analyze+next button until sample loaded
                 display_calib[0],  # ref-a0
                 display_calib[1],  # ref-a1
                 display_calib[2],  # ref-a2
@@ -92,7 +94,7 @@ def register_data_loading_callbacks(app):
             
             error_msg = create_status_message('error', f"Chyba při načítání konfigurace: {str(e)}")
             
-            return None, True, 9.6229, 1.3793, 0, 9.6229, 1.3793, [200, 800], [700, 1640], error_msg
+            return None, True, True, 9.6229, 1.3793, 0, 9.6229, 1.3793, [200, 800], [700, 1640], error_msg
     
     
     # ==================== UPDATE SAMPLE SELECTOR ====================
@@ -125,6 +127,7 @@ def register_data_loading_callbacks(app):
          Output('sample-selector', 'options', allow_duplicate=True),
          Output('spe-status', 'children'),
          Output('run-analysis', 'disabled', allow_duplicate=True),
+         Output('run-analysis-next', 'disabled', allow_duplicate=True),
          Output('status-log', 'children', allow_duplicate=True)],
         [Input('upload-spe', 'contents'),
          Input('upload-spe', 'filename')],
@@ -191,7 +194,7 @@ def register_data_loading_callbacks(app):
         # Enable analyze button if we have samples
         enable_analysis = len(excel_data['sample_names']) > 0
         
-        return excel_data, new_options, spe_status, not enable_analysis, status_msg
+        return excel_data, new_options, spe_status, not enable_analysis, not enable_analysis, status_msg
     
     
     

@@ -1,0 +1,78 @@
+# ============================================================
+# Centrální konfigurace pro analýzu porovnání HPGe vs NaI(Tl)
+# ============================================================
+
+# ----------------------------------------------------------
+# VSTUPNÍ SOUBORY
+# ----------------------------------------------------------
+input:
+  # HPGe referenční data
+  hpge_file: "labsys_vysledky.xlsx"
+  hpge_sheet: "vysledky"
+  
+  # NaI výsledky z aplikace (accumulated_results)
+  # Prázdné = automatická detekce nejnovějšího
+  accumulated_results_file: ""  # např. "accumulated_results_20260106_143242.xlsx"
+
+# ----------------------------------------------------------
+# VÝSTUP
+# ----------------------------------------------------------
+output:
+  # Výstupní adresář (relativně ke skriptu)
+  directory: "."
+
+# ----------------------------------------------------------
+# KOREKČNÍ MODEL
+# ----------------------------------------------------------
+correction:
+  # Dostupné modely:
+  #   - 'exponential': A_corr = A * exp(b * ρ)
+  #   - 'linear': A_corr = A * (1 + b * ρ)
+  #   - 'power': A_corr = A * ρ^b
+  #   - 'quadratic_centered': A_corr = A * [1 + b*(ρ - ρ_ref) + c*(ρ - ρ_ref)²]
+  #   - 'scaled_exponential': A_corr = a * A * exp(b * (ρ - ρ_ref))
+  #   - 'scaled_exponential_quadratic': A_corr = a * A * exp(b*Δρ + c*Δρ²)
+  model: "scaled_exponential_quadratic"
+  
+  # Referenční hustota [g/cm³]
+  reference_density: 1.0
+
+# ----------------------------------------------------------
+# NEJISTOTY
+# ----------------------------------------------------------
+uncertainty:
+  # Rozšířená relativní nejistota pro NaI(Tl) měření (10% = 0.10)
+  relative_nai: 0.10
+
+# ----------------------------------------------------------
+# IDENTIFIKACE OUTLIERŮ
+# ----------------------------------------------------------
+outliers:
+  # Z-score práh pro identifikaci outlierů
+  # Typické hodnoty:
+  #   2.0 = 95% CI (1 z 20)
+  #   2.5 = 98.8% CI (1 z 80)
+  #   3.0 = 99.7% CI (1 z 370)
+  threshold: 2.5
+
+# ----------------------------------------------------------
+# PRVKY PRO ANALÝZU
+# ----------------------------------------------------------
+elements:
+  # Prvky pro dekonvoluční analýzu
+  deconvolution:
+    Ra-226:
+      activity_col: "A_Ra"
+      uncertainty_col: "U_Ra"
+    K-40:
+      activity_col: "A_K"
+      uncertainty_col: "U_K"
+    Th-232:
+      activity_col: "A_Th"
+      uncertainty_col: "U_Th"
+  
+  # Ra-226 z 186 keV
+  186_keV:
+    Ra-226 (186 keV):
+      activity_col: "A_Ra"
+      uncertainty_col: "U_Ra"

@@ -133,15 +133,18 @@ def perform_single_regression(X, y_rebinned, regression_method, component_names)
     return results
 
 
-def perform_dual_roi_regression(X, y_rebinned, roi1_range, roi2_range, 
+def perform_dual_roi_regression(X, y_rebinned_roi1, y_rebinned_roi2, roi1_range, roi2_range, 
                                 regression_method, component_names, 
                                 k_source_roi='roi2', print_diagnostics=True):
     """
     Perform dual ROI regression: fit ROI1 for Ra/Th, ROI2 for K, merge results.
     
+    Each ROI uses its own rebinned spectrum (optimized with separate channel mapping).
+    
     Args:
         X: Calibration matrix
-        y_rebinned: Rebinned sample spectrum (CPS)
+        y_rebinned_roi1: Rebinned sample spectrum for ROI1 (CPS) - optimized for Ra/Th region
+        y_rebinned_roi2: Rebinned sample spectrum for ROI2 (CPS) - optimized for K-40 region
         roi1_range: [min_ch, max_ch] for Ra/Th region
         roi2_range: [min_ch, max_ch] for K region
         regression_method: 'OLS' or 'NNLS'
@@ -156,18 +159,19 @@ def perform_dual_roi_regression(X, y_rebinned, roi1_range, roi2_range,
     
     if print_diagnostics:
         print(f"\n{'='*60}")
-        print(f"DUAL ROI ANALYSIS (Channel-Centric)")
+        print(f"DUAL ROI ANALYSIS (Channel-Centric, Separate Mappings)")
         print(f"{'='*60}")
         print(f"ROI #1 (Ra/Th): channels {roi1_range[0]}-{roi1_range[1]}")
         print(f"ROI #2 (K-40):  channels {roi2_range[0]}-{roi2_range[1]}")
+        print(f"Using SEPARATE rebinned spectra for each ROI")
     
     # Create masks for ROI regions
-    mask_roi1 = create_channel_mask(roi1_range, len(y_rebinned))
-    mask_roi2 = create_channel_mask(roi2_range, len(y_rebinned))
+    mask_roi1 = create_channel_mask(roi1_range, len(y_rebinned_roi1))
+    mask_roi2 = create_channel_mask(roi2_range, len(y_rebinned_roi2))
     
-    # ROI 1: Mask and fit
+    # ROI 1: Mask and fit using ROI1-specific rebinned spectrum
     X_roi1 = X.copy()
-    y_roi1 = y_rebinned.copy()
+    y_roi1 = y_rebinned_roi1.copy()
     X_roi1[~mask_roi1] = 0
     y_roi1[~mask_roi1] = 0
     
@@ -190,9 +194,9 @@ def perform_dual_roi_regression(X, y_rebinned, roi1_range, roi2_range,
     if print_diagnostics:
         print(f"  Ra: {ra_coeff:.2e}, K: {k_coeff_roi1:.2e}, Th: {th_coeff:.2e}")
     
-    # ROI 2: Mask and fit
+    # ROI 2: Mask and fit using ROI2-specific rebinned spectrum
     X_roi2 = X.copy()
-    y_roi2 = y_rebinned.copy()
+    y_roi2 = y_rebinned_roi2.copy()
     X_roi2[~mask_roi2] = 0
     y_roi2[~mask_roi2] = 0
     
@@ -232,18 +236,36 @@ def perform_dual_roi_regression(X, y_rebinned, roi1_range, roi2_range,
     else:
         merged_coeffs = np.array([ra_coeff, k_coeff, th_coeff])
     
-    # Calculate global fit quality
-    fitted_spectrum_cps = X @ merged_coeffs
-    ss_res = np.sum((y_rebinned - fitted_spectrum_cps)**2)
-    ss_tot = np.sum((y_rebinned - np.mean(y_rebinned))**2)
-    r2_global = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+    # Calculate ROI-specific R² values (since each ROI has its own rebinned spectrum)
+    # ROI1 R²
+    fitted_roi1 = X @ np.array([results_roi1['Coefficients']['Ra'], 
+                                 results_roi1['Coefficients']['K'], 
+                                 results_roi1['Coefficients']['Th']] + 
+                                ([results_roi1['Coefficients']['BG']] if has_bg else []))
+    ss_res_roi1 = np.sum((y_rebinned_roi1[mask_roi1] - fitted_roi1[mask_roi1])**2)
+    ss_tot_roi1 = np.sum((y_rebinned_roi1[mask_roi1] - np.mean(y_rebinned_roi1[mask_roi1]))**2)
+    r2_roi1 = 1 - (ss_res_roi1 / ss_tot_roi1) if ss_tot_roi1 > 0 else 0
+    
+    # ROI2 R²
+    fitted_roi2 = X @ np.array([results_roi2['Coefficients']['Ra'], 
+                                 results_roi2['Coefficients']['K'], 
+                                 results_roi2['Coefficients']['Th']] + 
+                                ([results_roi2['Coefficients']['BG']] if has_bg else []))
+    ss_res_roi2 = np.sum((y_rebinned_roi2[mask_roi2] - fitted_roi2[mask_roi2])**2)
+    ss_tot_roi2 = np.sum((y_rebinned_roi2[mask_roi2] - np.mean(y_rebinned_roi2[mask_roi2]))**2)
+    r2_roi2 = 1 - (ss_res_roi2 / ss_tot_roi2) if ss_tot_roi2 > 0 else 0
+    
+    # Combined R² as weighted average
+    n_roi1 = np.sum(mask_roi1)
+    n_roi2 = np.sum(mask_roi2)
+    r2_combined = (r2_roi1 * n_roi1 + r2_roi2 * n_roi2) / (n_roi1 + n_roi2) if (n_roi1 + n_roi2) > 0 else 0
     
     n, p = X.shape
-    r2_adj = 1 - (1 - r2_global) * (n - 1) / (n - p) if n > p else r2_global
+    r2_adj = 1 - (1 - r2_combined) * (n - 1) / (n - p) if n > p else r2_combined
     
     # Package merged results
     merged_results = {
-        "Method": f"{regression_method} (ROI dual)",
+        "Method": f"{regression_method} (ROI dual, separate mappings)",
         "Coefficients": {'Ra': ra_coeff, 'K': k_coeff, 'Th': th_coeff},  # BG excluded
         "Std Errors": {
             'Ra': results_roi1['Std Errors']['Ra'],
@@ -251,7 +273,9 @@ def perform_dual_roi_regression(X, y_rebinned, roi1_range, roi2_range,
             'Th': results_roi1['Std Errors']['Th']
         },
         "P Values": {'Ra': 0, 'K': 0, 'Th': 0},
-        "R^2": r2_global,
+        "R^2": r2_combined,
+        "R^2_ROI1": r2_roi1,
+        "R^2_ROI2": r2_roi2,
         "Adjusted R^2": r2_adj
     }
     
@@ -260,7 +284,9 @@ def perform_dual_roi_regression(X, y_rebinned, roi1_range, roi2_range,
         print(f"  Ra: {ra_coeff:.2e} (from ROI1)")
         print(f"  K:  {k_coeff:.2e} (from {'ROI2' if k_source_roi == 'roi2' else 'ROI1'})")
         print(f"  Th: {th_coeff:.2e} (from ROI1)")
-        print(f"  Global R²: {r2_global:.6f}")
+        print(f"  R² ROI1: {r2_roi1:.6f}")
+        print(f"  R² ROI2: {r2_roi2:.6f}")
+        print(f"  R² Combined: {r2_combined:.6f}")
         print(f"{'='*60}\n")
     
     return merged_results, results_roi1, results_roi2, mask_roi1, mask_roi2
@@ -292,6 +318,9 @@ def package_analysis_results(sample_name, excel_data, sample_rebinned_counts,
     """
     calib_df, _, _ = unpack_excel_data(excel_data)
     
+    # Get sample live time for later use
+    sample_live_time = excel_data['sample_live_times'][excel_data['sample_names'].index(sample_name)]
+    
     # Extract coefficients (BG already removed from results_method)
     raw_coeffs = {k: v for k, v in results_method['Coefficients'].items()}
     
@@ -307,6 +336,7 @@ def package_analysis_results(sample_name, excel_data, sample_rebinned_counts,
     # Build base results
     results = {
         'sample_name': sample_name,
+        'sample_live_time': sample_live_time,  # Important for 186 keV analysis
         'calibration': calib_df.to_dict('records'),
         'sample_spectrum': sample_rebinned_counts.tolist(),
         'sample_rebinned': sample_rebinned_counts.tolist(),
@@ -325,7 +355,6 @@ def package_analysis_results(sample_name, excel_data, sample_rebinned_counts,
     else:
         # Standard analysis - calculate fitted spectrum
         X, _ = build_calibration_matrix(excel_data, use_background, print_diagnostics=False)
-        sample_live_time = excel_data['sample_live_times'][excel_data['sample_names'].index(sample_name)]
         fitted_cps = X @ np.array(list(raw_coeffs.values()))
         fitted_counts = fitted_cps * sample_live_time
         

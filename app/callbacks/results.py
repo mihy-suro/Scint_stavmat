@@ -39,10 +39,23 @@ def register_results_callbacks(app):
                 index = calculate_activity_index(ra_val, th_val, k_val)
                 index_err = calculate_index_uncertainty(ra_val, ra_err_val, th_val, th_err_val, k_val, k_err)
                 
+                # Extract Ra-226 from 186 keV peak analysis (alternative method)
+                ra_peak_data = entry.get('ra_peak_186')
+                if ra_peak_data and ra_peak_data.get('activity') is not None:
+                    ra_186_val = ra_peak_data['activity']
+                    ra_186_err = ra_peak_data['uncertainty']
+                    ra_186_str = f"{ra_186_val:.3f}"
+                    ra_186_err_str = f"{ra_186_err:.3f}"
+                else:
+                    ra_186_str = "-"
+                    ra_186_err_str = "-"
+                
                 display_data.append({
                     'sample_id': entry['sample_name'],
                     'Ra': f"{ra_val:.3f}",
                     'Ra_err': f"{ra_err_val:.3f}",
+                    'Ra_186': ra_186_str,
+                    'Ra_186_err': ra_186_err_str,
                     'K': f"{k_val:.3f}",
                     'K_err': f"{k_err:.3f}",
                     'Th': f"{th_val:.3f}",
@@ -117,10 +130,21 @@ def register_results_callbacks(app):
                     index = calculate_activity_index(ra_val, th_val, k_val)
                     index_err = calculate_index_uncertainty(ra_val, ra_err, th_val, th_err, k_val, k_err)
                     
+                    # Extract Ra-226 from 186 keV peak analysis
+                    ra_peak_data = entry.get('ra_peak_186')
+                    if ra_peak_data and ra_peak_data.get('activity') is not None:
+                        ra_186_val = ra_peak_data['activity']
+                        ra_186_err = ra_peak_data['uncertainty']
+                    else:
+                        ra_186_val = None
+                        ra_186_err = None
+                    
                     export_data.append({
                         'sample_name': entry['sample_name'],
                         'Ra': ra_val,
                         'Ra_err': ra_err,
+                        'Ra_186': ra_186_val,
+                        'Ra_186_err': ra_186_err,
                         'K': k_val,
                         'K_err': k_err,
                         'Th': th_val,
@@ -141,7 +165,7 @@ def register_results_callbacks(app):
             ws.title = "Results"
             
             # Write header
-            header = ['sample_name', 'Ra', 'Ra_err', 'K', 'K_err', 'Th', 'Th_err', 'Index', 'Index_err']
+            header = ['sample_name', 'Ra', 'Ra_err', 'Ra_186', 'Ra_186_err', 'K', 'K_err', 'Th', 'Th_err', 'Index', 'Index_err']
             ws.append(header)
             
             # Write data

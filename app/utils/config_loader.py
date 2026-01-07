@@ -206,6 +206,12 @@ def load_detector_configuration(detector_name, config_path=None, base_path=None)
     k_activity = float(standard_activities.get('K', 21330.0))
     th_activity = float(standard_activities.get('Th', 1020.0))
     
+    # Get peak analysis configuration
+    peak_analysis_config = detector_config.get('peak_analysis', {})
+    
+    # Get pre-calibrated peak values (from calibrate_186_peak.py)
+    peak_calibration = detector_config.get('peak_calibration', {})
+    
     # Build data structure
     excel_data = {
         'calibration': calib_df.to_dict('records'),
@@ -227,7 +233,18 @@ def load_detector_configuration(detector_name, config_path=None, base_path=None)
             'BG_live_time': spectra_data['live_times']['BG'],
             'has_background': spectra_data['bg_spe'] is not None
         },
-        'detector_name': detector_name
+        'detector_name': detector_name,
+        # Raw calibration spectra for peak analysis (counts, not normalized)
+        'raw_calibration_spectra': {
+            'Ra': spectra_data['ra_spe']['channels'],
+            'K': spectra_data['k_spe']['channels'],
+            'Th': spectra_data['th_spe']['channels'],
+            'BG': spectra_data['bg_spe']['channels'] if spectra_data['bg_spe'] else None
+        },
+        # Peak analysis configuration
+        'peak_analysis_config': peak_analysis_config,
+        # Pre-calibrated peak values
+        'peak_calibration': peak_calibration
     }
     
     # Calculate approximate keV for display

@@ -65,8 +65,15 @@ def create_roi_plot(results, roi_num, roi_range, ref_calib, emphasis='Ra/Th'):
         return create_placeholder_figure(f"{roi_label}: {roi_name} (žádná ROI data)", height=300)
     
     try:
-        # Extract data
-        sample_rebinned = np.array(results['sample_rebinned'])
+        # Extract data - use ROI-specific rebinned spectrum if available
+        # This handles the case where each ROI has its own channel mapping
+        roi_rebinned_key = f'roi{roi_num}_sample_rebinned'
+        if roi_info.get(roi_rebinned_key):
+            # Use ROI-specific rebinned spectrum (new behavior with separate mappings)
+            sample_rebinned = np.array(roi_info.get(roi_rebinned_key))
+        else:
+            # Fallback to global rebinned spectrum (backward compatibility)
+            sample_rebinned = np.array(results['sample_rebinned'])
         n_channels = len(sample_rebinned)
         
         roi_fitted = np.array(roi_info.get(fitted_key, []))
@@ -156,8 +163,14 @@ def create_residuals_plot(results, roi_num, roi_range, ref_calib, relayout_data=
         return empty_fig
     
     try:
-        # Extract data
-        sample_rebinned = np.array(results['sample_rebinned'])
+        # Extract data - use ROI-specific rebinned spectrum if available
+        roi_rebinned_key = f'roi{roi_num}_sample_rebinned'
+        if roi_info.get(roi_rebinned_key):
+            # Use ROI-specific rebinned spectrum (new behavior with separate mappings)
+            sample_rebinned = np.array(roi_info.get(roi_rebinned_key))
+        else:
+            # Fallback to global rebinned spectrum (backward compatibility)
+            sample_rebinned = np.array(results['sample_rebinned'])
         n_channels = len(sample_rebinned)
         
         roi_fitted = np.array(roi_info.get(fitted_key, []))
