@@ -6,6 +6,9 @@
 # VSTUPNÍ SOUBORY
 # ----------------------------------------------------------
 input:
+  # Adresář se vstupními xlsx soubory
+  directory: "input"
+  
   # HPGe referenční data
   hpge_file: "labsys_vysledky.xlsx"
   hpge_sheet: "vysledky"
@@ -19,7 +22,7 @@ input:
 # ----------------------------------------------------------
 output:
   # Výstupní adresář (relativně ke skriptu)
-  directory: "."
+  directory: "output"
 
 # ----------------------------------------------------------
 # KOREKČNÍ MODEL

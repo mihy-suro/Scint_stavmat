@@ -329,7 +329,7 @@ Aplikace běží na `http://localhost:8051`
 1. Vybrat detektor (CeBr3 / NaI(Tl))
    - Automaticky se načtou kalibrační SPE soubory (Ra, K, Th, BG)
    - Nastaví se defaultní ROI rozsahy a parametry z YAML
-2. Upload SPE souboru vzorku přes drag&drop oblast
+2. Upload SPE souboru vzorku
 3. Aplikace načte spektrum + metadata (live time, název vzorku)
 
 ### Krok 2: Kalibrace

@@ -1,141 +1,83 @@
 # Scint_stavmat
 
-**Analýza scintilačních spekter - dekonvoluce a kalibrace pro NaI(Tl) a CeBr₃ detektory**
+**Analýza scintilačních spekter pro NaI(Tl) a CeBr₃ detektory**
 
-Projekt obsahuje interaktivní Dash aplikaci pro analýzu γ-spekter a pipeline pro porovnání výsledků NaI(Tl) spektroskopie s referenčními HPGe měřeními.
-
----
-
-## 📁 Struktura projektu
-
-### `app/` - Interaktivní Dash aplikace
-
-Webová aplikace pro analýzu jednotlivých vzorků pomocí scintilačních detektorů (NaI(Tl), CeBr₃).
-
-**Funkce:**
-- Načítání spekter ze souborů SPE (formát Ortec Maestro)
-- Ruční kalibrace peaků (Ra-226, Th-232, K-40)
-- Dekonvoluční analýza s ROI fittingem (Ra/Th a K-40 oblasti)
-- Alternativní analýza Ra-226 z 186 keV píku
-- Export výsledků do XLSX
-
-**Spuštění:**
-```bash
-cd app
-python app.py
-```
-Aplikace běží na http://localhost:8051
-
-**Konfigurace:**
-- `app/config/detectors.yaml` - parametry detektorů, efektivnosti, kalibrace
+Projekt obsahuje:
+1. **Dash aplikaci** pro dekonvoluční analýzu γ-spekter
+2. **Pipeline** pro porovnání výsledků s HPGe referenčními měřeními
 
 ---
 
-### `data_analysis/` - HPGe vs NaI(Tl) komparace
+## 📁 Struktura
 
-Pipeline pro porovnání výsledků NaI(Tl) měření s HPGe referenčními hodnotami.
-
-**Workflow:**
-1. Načte HPGe data (`labsys_vysledky.xlsx`)
-2. Načte NaI výsledky z aplikace (`accumulated_results_*.xlsx`)
-3. Vytvoří kombinovaný vstup (`comparison_input.xlsx`)
-4. Aplikuje korekce na samoabsorpci (hustotně závislé)
-5. Vygeneruje interaktivní vizualizaci (`comparison_results_plot.html`)
-
-**Spuštění:**
-```bash
-cd data_analysis
-python main.py
 ```
-
-**Konfigurace:**
-- `data_analysis/config.yaml` - vstupní soubory, korekční model, outlier threshold
-
-**Korekční modely:**
-- `scaled_exponential_quadratic`: $A_{corr} = a \times A \times \exp(b \times \Delta\rho + c \times \Delta\rho^2)$
-- Outlier detekce: z-score = $|A_{HPGe} - A_{NaI}| / \sqrt{U_{HPGe}^2 + U_{NaI}^2}$
+├── app/                    # Interaktivní Dash aplikace
+│   ├── app.py              # Entry point
+│   ├── config/             # Konfigurace detektorů (YAML)
+│   ├── data/calibration/   # Kalibrační spektra (SPE)
+│   └── README.md           # Detailní dokumentace aplikace
+├── data_analysis/          # HPGe vs NaI(Tl) porovnání
+│   ├── main.py             # Pipeline orchestrace
+│   ├── config.yaml         # Nastavení analýzy
+│   └── visualize.py        # Generování grafů
+├── Spektra/                # Spektra vzorků (SPE, CNF)
+└── Converter/              # Konverze CNF → SPE
+```
 
 ---
 
-## 🚀 Instalace
+## 🚀 Rychlý start
 
-### Požadavky
-- Python ≥ 3.9
-- Doporučeno: [uv](https://github.com/astral-sh/uv) pro správu závislostí
+### Instalace
 
-### Instalace závislostí
-
-**S uv (doporučeno):**
-```bash
-uv sync
-```
-
-**S pip:**
-```bash
+```powershell
 python -m venv .venv
-.venv\Scripts\activate  # Windows
+.venv\Scripts\activate
 pip install -e .
 ```
 
----
+### Spuštění aplikace
 
-## 📊 Použití
+```powershell
+cd app
+python app.py
+```
+→ http://localhost:8051
 
-### 1. Analýza vzorků (Dash aplikace)
+### Porovnání s HPGe
 
-1. Spusťte aplikaci: `python app/app.py`
-2. Nahrajte YAML konfiguraci vzorků
-3. Proveďte manuální kalibraci (Ra, Th, K)
-4. Spusťte dekonvoluční analýzu nebo 186 keV analýzu
-5. Exportujte výsledky do Excel
+Uživatel poskytne:
+- HPGe referenční hodnoty (`labsys_vysledky.xlsx`)
+- NaI výsledky z aplikace (`accumulated_results_*.xlsx`)
 
-### 2. Porovnání s HPGe
-
-1. Exportujte výsledky z aplikace (`accumulated_results_*.xlsx`)
-2. Upravte `data_analysis/config.yaml` (volitelně)
-3. Spusťte: `python data_analysis/main.py`
-4. Otevřete `comparison_results_plot.html` v prohlížeči
-
----
-
-## 📐 Metodika
-
-### Dekonvoluční analýza
-- **ROI #1 (Ra/Th)**: Multiplet fitting Ra-226 (609, 352, 295, 242 keV) + Th-232 (583, 338, 911 keV)
-- **ROI #2 (K-40)**: Singlet 1461 keV
-- **Regrese**: Weighted least squares s Poisson nejistotami
-- **Calibration**: Polynomická E(ch) = a₀ + a₁·ch + a₂·ch²
-
-### Ra-226 186 keV analýza
-- Jednoduchá net-area metoda pro nízkoenergetický pík
-- Linear background odhad
-- Nezávislá alternativa k dekonvoluci
-
-### Korekce na samoabsorpci
-- Empirická transformace: $f(\rho) = a \times \exp(b \times \Delta\rho + c \times \Delta\rho^2)$
-- Referenční hustota: $\rho_{ref} = 1.0 \, \mathrm{g/cm^3}$
-- Optimalizace parametrů pomocí scipy minimize
+```powershell
+cd data_analysis
+python main.py
+```
+→ Otevřete `comparison_results_plot.html`
 
 ---
 
-## 📝 Závislosti
+## 📖 Dokumentace
 
-Hlavní balíčky:
-- `dash` + `dash-bootstrap-components` - webová aplikace
-- `plotly` - interaktivní grafy
-- `pandas`, `numpy`, `scipy` - analýza dat
-- `scikit-learn`, `statsmodels` - regrese
-- `openpyxl` - Excel I/O
-- `pyyaml` - konfigurace
+- **[app/README.md](app/README.md)** - Detailní dokumentace Dash aplikace (matematika, workflow, konfigurace)
+- **[data_analysis/config.yaml](data_analysis/config.yaml)** - Nastavení korekčních modelů a vizualizace
 
 ---
 
-## 📄 Licence
+## 📐 Metodika (přehled)
 
-Tento projekt je určen pro výzkumné účely.
+| Metoda | Popis |
+|--------|-------|
+| **Dekonvoluce** | Rozklad spektra na Ra-226, K-40, Th-232 pomocí NNLS/OLS regrese |
+| **Rebinning** | Kanálové zarovnání spekter pomocí energetické kalibrace |
+| **186 keV analýza** | Alternativní určení Ra-226 z net area nízkoenergetického píku |
+| **Korekce samoabsorpce** | Hustotně závislá transformace: $A_{corr} = a \cdot A \cdot e^{b \cdot \Delta\rho + c \cdot \Delta\rho^2}$ |
 
 ---
 
-## 👤 Autor
+## 🔧 Požadavky
 
-Projekt vytvořen v rámci výzkumu scintilační spektroskopie stavebních materiálů.
+- Python ≥ 3.9
+- Windows 10/11 (primární platforma)
+- Závislosti: `dash`, `plotly`, `pandas`, `numpy`, `scipy`, `openpyxl`, `pyyaml`

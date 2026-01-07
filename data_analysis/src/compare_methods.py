@@ -13,7 +13,7 @@ import numpy as np
 import os
 
 # Import korekčních funkcí pro sampoabsorpci
-from density_correction_utils import optimize_all_elements, apply_correction
+from .density_correction_utils import optimize_all_elements, apply_correction
 
 # ============================================================
 # KONFIGURACE
@@ -53,29 +53,51 @@ def calculate_total_uncertainty(activity, original_uncertainty, relative_uncerta
     total_uncertainty = np.sqrt(original_uncertainty**2 + additional_uncertainty**2)
     return total_uncertainty
 
-# Načtení dat z Excel souboru
-script_dir = os.path.dirname(os.path.abspath(__file__))
-excel_file = os.path.join(script_dir, "vysldky_scint.xlsx")
-df = pd.read_excel(excel_file, sheet_name="porovnani")
 
-print("Načtená data:")
-print(df.head(10))
-print("\nSloupce:", df.columns.tolist())
-print("\nMetody:", df['Metoda'].unique())
-print("\nPočet vzorků:", df['Kniha analýz'].nunique())
-
-# Pivot dat pro srovnání metod
-# Rozdělíme data podle metody
-df_hpge = df[df['Metoda'] == 'HPGe'].copy()
-df_nai = df[df['Metoda'] == 'NaI(Tl)'].copy()
-# Aplikace rozšířené nejistoty na NaI(Tl) data
-for col_prefix in ['Ra', 'K', 'Th']:
-    activity_col = f'A_{col_prefix}'
-    uncertainty_col = f'U_{col_prefix}'
+def main(excel_file: str = None):
+    """
+    Hlavní funkce pro porovnání metod HPGe vs NaI(Tl).
     
-    if activity_col in df_nai.columns and uncertainty_col in df_nai.columns:
-        df_nai[uncertainty_col] = calculate_total_uncertainty(
-            df_nai[activity_col],
+    Parameters:
+    -----------
+    excel_file : str, optional
+        Cesta k Excel souboru s daty. Pokud není zadána, hledá vysldky_scint.xlsx
+    """
+    from pathlib import Path
+    
+    if excel_file is None:
+        # Legacy behavior - hledá soubor v input/ adresáři
+        script_dir = Path(__file__).parent.parent
+        excel_file = script_dir / "input" / "vysldky_scint.xlsx"
+    else:
+        excel_file = Path(excel_file)
+    
+    if not excel_file.exists():
+        raise FileNotFoundError(
+            f"Soubor nenalezen: {excel_file}\n"
+            f"Tento skript je legacy a vyžaduje specifický vstupní soubor."
+        )
+    
+    df = pd.read_excel(excel_file, sheet_name="porovnani")
+
+    print("Načtená data:")
+    print(df.head(10))
+    print("\nSloupce:", df.columns.tolist())
+    print("\nMetody:", df['Metoda'].unique())
+    print("\nPočet vzorků:", df['Kniha analýz'].nunique())
+
+    # Pivot dat pro srovnání metod
+    # Rozdělíme data podle metody
+    df_hpge = df[df['Metoda'] == 'HPGe'].copy()
+    df_nai = df[df['Metoda'] == 'NaI(Tl)'].copy()
+    # Aplikace rozšířené nejistoty na NaI(Tl) data
+    for col_prefix in ['Ra', 'K', 'Th']:
+        activity_col = f'A_{col_prefix}'
+        uncertainty_col = f'U_{col_prefix}'
+        
+        if activity_col in df_nai.columns and uncertainty_col in df_nai.columns:
+            df_nai[uncertainty_col] = calculate_total_uncertainty(
+                df_nai[activity_col],
             df_nai[uncertainty_col],
             RELATIVE_UNCERTAINTY_NAI
         )

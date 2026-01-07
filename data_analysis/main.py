@@ -19,9 +19,9 @@ Použití:
 from pathlib import Path
 from datetime import datetime
 
-from build_input import build_comparison_input
-from visualize import run_visualization
-from config_loader import get_config, get_input_files, get_output_dir, get_outlier_threshold
+from src.build_input import build_comparison_input
+from src.visualize import run_visualization
+from src.config_loader import get_config, get_input_files, get_output_dir, get_outlier_threshold
 
 
 def find_latest_accumulated_results(directory: Path) -> Path:
@@ -60,21 +60,23 @@ def main():
     # ------------------------
     # 1) Určení vstupních souborů
     # ------------------------
-    hpge_file = script_dir / input_config['hpge_file']
+    input_dir = (script_dir / input_config.get('directory', 'input')).resolve()
+    
+    hpge_file = input_dir / input_config['hpge_file']
     hpge_sheet = input_config['hpge_sheet']
     
     if input_config['accumulated_results_file']:
-        acc_file = script_dir / input_config['accumulated_results_file']
+        acc_file = input_dir / input_config['accumulated_results_file']
     else:
         print("\nHledám nejnovější accumulated_results soubor...")
-        acc_file = find_latest_accumulated_results(script_dir)
+        acc_file = find_latest_accumulated_results(input_dir)
         print(f"Nalezen: {acc_file.name}")
     
     # Kontrola existence
     if not hpge_file.exists():
         raise FileNotFoundError(
             f"HPGe soubor nenalezen: {hpge_file}\n"
-            f"Umístěte soubor '{input_config['hpge_file']}' do adresáře {script_dir}"
+            f"Umístěte soubor '{input_config['hpge_file']}' do adresáře {input_dir}"
         )
     
     if not acc_file.exists():
@@ -84,6 +86,7 @@ def main():
         )
     
     print(f"\nVstupní soubory:")
+    print(f"  Vstup:    {input_dir}")
     print(f"  HPGe:     {hpge_file.name}")
     print(f"  NaI(Tl):  {acc_file.name}")
     print(f"  Výstup:   {output_dir}")

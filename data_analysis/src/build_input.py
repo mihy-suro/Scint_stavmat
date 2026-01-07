@@ -154,27 +154,34 @@ def create_long_format(df_merge: pd.DataFrame) -> pd.DataFrame:
     base_cols = EXPECTED_COLS_HPGE
     today = datetime.now().strftime("%Y-%m-%d")
     
-    # 1) HPGe řádky - původní hodnoty
+    # 1) HPGe řádky - původní hodnoty (už jsou v Bq/kg)
     df_hpge_out = df_merge[base_cols].copy()
     
     # 2) NaI(Tl) řádky - dekonvoluce
+    # DŮLEŽITÉ: NaI data z aplikace jsou v Bq (celková aktivita)
+    # Musíme dělit hmotností vzorku pro převod na Bq/kg
     df_nai = df_merge.copy()
+    mass = df_nai["Hmotnost [kg]"]
+    
     df_nai["Metoda"] = "NaI(Tl)"
     df_nai["Ref. Dat"] = today
-    df_nai["A_Ra"] = df_nai["Ra"]
-    df_nai["U_Ra"] = df_nai["Ra_err"]
-    df_nai["A_K"] = df_nai["K"]
-    df_nai["U_K"] = df_nai["K_err"]
-    df_nai["A_Th"] = df_nai["Th"]
-    df_nai["U_Th"] = df_nai["Th_err"]
+    df_nai["A_Ra"] = df_nai["Ra"] / mass
+    df_nai["U_Ra"] = df_nai["Ra_err"] / mass
+    df_nai["A_K"] = df_nai["K"] / mass
+    df_nai["U_K"] = df_nai["K_err"] / mass
+    df_nai["A_Th"] = df_nai["Th"] / mass
+    df_nai["U_Th"] = df_nai["Th_err"] / mass
     df_nai_out = df_nai[base_cols].copy()
     
     # 3) NaI(Tl) – 186 keV řádky - pouze Ra
+    # Také v Bq, nutno dělit hmotností
     df_186 = df_merge.copy()
+    mass_186 = df_186["Hmotnost [kg]"]
+    
     df_186["Metoda"] = "NaI(Tl) – 186 keV"
     df_186["Ref. Dat"] = today
-    df_186["A_Ra"] = df_186["Ra_186"]
-    df_186["U_Ra"] = df_186["Ra_186_err"]
+    df_186["A_Ra"] = df_186["Ra_186"] / mass_186
+    df_186["U_Ra"] = df_186["Ra_186_err"] / mass_186
     df_186["A_K"] = pd.NA
     df_186["U_K"] = pd.NA
     df_186["A_Th"] = pd.NA
