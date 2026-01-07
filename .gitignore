@@ -46,8 +46,6 @@ Thumbs.db
 ~$*
 
 # Project specific
-*.CNF
-*.SPE
 Converter/LOG/
 Converter/Temp/
 Converter/Input/
