@@ -47,6 +47,8 @@ Thumbs.db
 
 # Project specific
 Converter/
+pandoc-3.8.3/
+report/
 
 # Data files (uncomment if you want to exclude)
 # *.xlsx

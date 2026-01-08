@@ -82,18 +82,11 @@ def create_visualization(
     config = get_viz_config()
     element_order = config.element_order
     
-    # Názvy subplotů
-    subplot_titles = []
-    for elem in element_order:
-        subplot_titles.extend([elem, f"{elem} (korigováno)"])
-    subplot_titles.extend(["Ra-226 (186 keV)", "Ra-226 (186 keV) korigováno"])
-    subplot_titles.append("Zlepšení RMSE po korekci")
-    
     # Vytvoření 5×2 gridu - řádek 5 má colspan=2
+    # Titulky budou jako anotace uvnitř grafů
     fig = make_subplots(
         rows=5, cols=2,
-        subplot_titles=subplot_titles,
-        horizontal_spacing=0.08,
+        horizontal_spacing=0.12,
         vertical_spacing=0.06,
         specs=[
             [{}, {}],   # Řádek 1: K-40
@@ -104,6 +97,27 @@ def create_visualization(
         ],
         row_heights=[0.2, 0.2, 0.2, 0.2, 0.2]
     )
+    
+    # Titulky uvnitř grafů
+    titles_row1_4 = [
+        ("K-40", 1, 1), ("K-40 (korigováno)", 1, 2),
+        ("Th-232", 2, 1), ("Th-232 (korigováno)", 2, 2),
+        ("Ra-226", 3, 1), ("Ra-226 (korigováno)", 3, 2),
+        ("Ra-226 (186 keV)", 4, 1), ("Ra-226 (186 keV) korigováno", 4, 2)
+    ]
+    for title, r, c in titles_row1_4:
+        subplot_idx = (r - 1) * 2 + c
+        xref = f"x{subplot_idx} domain" if subplot_idx > 1 else "x domain"
+        yref = f"y{subplot_idx} domain" if subplot_idx > 1 else "y domain"
+        fig.add_annotation(
+            text=f"<b>{title}</b>",
+            x=0.5, y=0.98,
+            xref=xref, yref=yref,
+            xanchor='center', yanchor='top',
+            showarrow=False,
+            font=dict(size=12),
+            bgcolor='rgba(255,255,255,0.7)'
+        )
     
     # ========================================
     # ŘÁDKY 1-3: Dekonvoluční data (K, Th, Ra)
@@ -134,7 +148,7 @@ def create_visualization(
         fig.update_xaxes(title_text="HPGe [Bq/kg]", row=row, col=1)
         fig.update_yaxes(title_text="NaI(Tl) [Bq/kg]", row=row, col=1)
         fig.update_xaxes(title_text="HPGe [Bq/kg]", row=row, col=2)
-        fig.update_yaxes(title_text="NaI corr [Bq/kg]", row=row, col=2)
+        fig.update_yaxes(title_text="", row=row, col=2)  # Bez popisku - nezasahuje do 1. sloupce
         
         first_element = False
     
@@ -164,7 +178,7 @@ def create_visualization(
     # Layout
     # ========================================
     fig.update_layout(
-        title_text="Porovnání metod: HPGe vs NaI(Tl)",
+        title_text=None,
         height=config.figure_height,
         width=config.figure_width,
         showlegend=True,
@@ -172,8 +186,9 @@ def create_visualization(
             orientation="h",
             yanchor="bottom",
             y=1.02,
-            xanchor="right",
-            x=1
+            xanchor="left",
+            x=0.55,
+            tracegroupgap=10
         )
     )
     
@@ -222,7 +237,7 @@ def plot_186_kev(
     if len(df_plot) == 0:
         return
     
-    density = calculate_density(df_plot)
+    density = calculate_density(df_plot).values  # Convert to numpy array
     
     # Z-score pro původní data
     U_hpge = df_plot[hpge_unc].values if hpge_unc in df_plot.columns else np.ones(len(df_plot))
@@ -240,7 +255,7 @@ def plot_186_kev(
     if len(df_normal) > 0:
         add_scatter_trace(
             fig, df_normal, hpge_act, nai_act, row, 1,
-            customdata[~is_outlier], cols['weight'],
+            customdata[~is_outlier], density[~is_outlier],
             hpge_unc, nai_unc,
             is_outlier=False, is_corrected=False,
             show_colorbar=False, show_legend=False,
@@ -251,7 +266,7 @@ def plot_186_kev(
     if len(df_outlier) > 0:
         add_scatter_trace(
             fig, df_outlier, hpge_act, nai_act, row, 1,
-            customdata[is_outlier], cols['weight'],
+            customdata[is_outlier], density[is_outlier],
             hpge_unc, nai_unc,
             is_outlier=True, is_corrected=False,
             show_colorbar=False, show_legend=False,
@@ -274,18 +289,18 @@ def plot_186_kev(
         if len(df_normal_corr) > 0:
             add_scatter_trace(
                 fig, df_normal_corr, hpge_act, nai_act_corr, row, 2,
-                customdata_corr[~is_outlier_corr], cols['weight'],
+                customdata_corr[~is_outlier_corr], density[~is_outlier_corr],
                 hpge_unc, nai_unc,
                 is_outlier=False, is_corrected=True,
                 show_colorbar=False, show_legend=False,
-                legend_group='corrected', name='Korigováno 186keV'
+                legend_group='original', name='Měření'
             )
         
         df_outlier_corr = df_plot[is_outlier_corr]
         if len(df_outlier_corr) > 0:
             add_scatter_trace(
                 fig, df_outlier_corr, hpge_act, nai_act_corr, row, 2,
-                customdata_corr[is_outlier_corr], cols['weight'],
+                customdata_corr[is_outlier_corr], density[is_outlier_corr],
                 hpge_unc, nai_unc,
                 is_outlier=True, is_corrected=True,
                 show_colorbar=False, show_legend=False,

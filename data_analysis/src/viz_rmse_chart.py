@@ -155,7 +155,7 @@ def add_rmse_dumbbell(
             textfont=dict(size=9, color='#e74c3c'),
             name='Před korekcí',
             hovertemplate='%{y}<br>RMSE před: %{x:.2f} Bq/kg<extra></extra>',
-            showlegend=True,
+            showlegend=False,
             legendgroup='dumbbell'
         ),
         row=row, col=col
@@ -173,10 +173,27 @@ def add_rmse_dumbbell(
             textfont=dict(size=9, color='#27ae60'),
             name='Po korekci',
             hovertemplate='%{y}<br>RMSE po: %{x:.2f} Bq/kg<extra></extra>',
-            showlegend=True,
+            showlegend=False,
             legendgroup='dumbbell'
         ),
         row=row, col=col
+    )
+    
+    # Lokální legenda pro RMSE graf (vpravo nahoře uvnitř grafu)
+    fig.add_annotation(
+        x=0.98,
+        y=0.98,
+        xref='x9 domain',
+        yref='y9 domain',
+        text='<span style="color:#e74c3c">●</span> Před korekcí<br><span style="color:#27ae60">●</span> Po korekci',
+        showarrow=False,
+        font=dict(size=11),
+        align='left',
+        xanchor='right',
+        yanchor='top',
+        bgcolor='rgba(255,255,255,0.8)',
+        bordercolor='lightgray',
+        borderwidth=1
     )
     
     # Anotace s procenty redukce

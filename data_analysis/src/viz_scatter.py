@@ -68,7 +68,7 @@ def add_scatter_trace(
     row: int,
     col: int,
     customdata: np.ndarray,
-    weight_col: str,
+    color_values: np.ndarray,
     hpge_unc_col: Optional[str] = None,
     nai_unc_col: Optional[str] = None,
     is_outlier: bool = False,
@@ -95,8 +95,8 @@ def add_scatter_trace(
         Pozice v subplot gridu
     customdata : array
         Data pro hover tooltip
-    weight_col : str
-        Název sloupce s hmotností (pro barvu)
+    color_values : array
+        Hodnoty pro barvu bodů (hustota)
     hpge_unc_col : str, optional
         Název sloupce s nejistotou HPGe
     nai_unc_col : str, optional
@@ -142,15 +142,18 @@ def add_scatter_trace(
         f'z-score: %{{customdata[5]:.2f}}<extra></extra>'
     )
     
-    # Colorbar nastavení
+    # Colorbar nastavení - horizontálně těsně nad první graf (vlevo)
     colorbar = None
     if show_colorbar:
         colorbar = dict(
-            title='Hmotnost [kg]',
-            thickness=15,
-            len=0.15,
-            y=0.92,
-            x=1.02
+            title=dict(text='Hustota [g/cm³]', side='top'),
+            orientation='h',
+            thickness=12,
+            len=0.35,
+            x=0.22,
+            y=1.02,
+            xanchor='center',
+            yanchor='bottom'
         )
     
     fig.add_trace(
@@ -161,7 +164,7 @@ def add_scatter_trace(
             marker=dict(
                 size=marker_size,
                 symbol=marker_symbol,
-                color=df[weight_col] if weight_col in df.columns else None,
+                color=color_values,
                 colorscale='Viridis',
                 showscale=show_colorbar,
                 colorbar=colorbar,
@@ -341,7 +344,7 @@ def plot_element_comparison(
     
     # Pomocné sloupce
     cols = get_column_names(df_plot)
-    density = calculate_density(df_plot)
+    density = calculate_density(df_plot).values  # Convert to numpy array
     
     # Z-score pro původní data
     U_hpge = df_plot[hpge_unc].values if hpge_unc in df_plot.columns else np.ones(len(df_plot))
@@ -361,7 +364,7 @@ def plot_element_comparison(
     if len(df_normal) > 0:
         add_scatter_trace(
             fig, df_normal, hpge_act, nai_act, row, 1,
-            customdata[~is_outlier], cols['weight'],
+            customdata[~is_outlier], density[~is_outlier],
             hpge_unc, nai_unc,
             is_outlier=False, is_corrected=False,
             show_colorbar=show_colorbar, show_legend=show_legend,
@@ -373,7 +376,7 @@ def plot_element_comparison(
     if len(df_outlier) > 0:
         add_scatter_trace(
             fig, df_outlier, hpge_act, nai_act, row, 1,
-            customdata[is_outlier], cols['weight'],
+            customdata[is_outlier], density[is_outlier],
             hpge_unc, nai_unc,
             is_outlier=True, is_corrected=False,
             show_colorbar=False, show_legend=show_legend,
@@ -399,11 +402,11 @@ def plot_element_comparison(
         if len(df_normal_corr) > 0:
             add_scatter_trace(
                 fig, df_normal_corr, hpge_act, nai_act_corr, row, 2,
-                customdata_corr[~is_outlier_corr], cols['weight'],
+                customdata_corr[~is_outlier_corr], density[~is_outlier_corr],
                 hpge_unc, nai_unc,
                 is_outlier=False, is_corrected=True,
-                show_colorbar=False, show_legend=show_legend,
-                legend_group='corrected', name='Korigováno'
+                show_colorbar=False, show_legend=False,
+                legend_group='original', name='Měření'
             )
         
         # Outliers
@@ -411,7 +414,7 @@ def plot_element_comparison(
         if len(df_outlier_corr) > 0:
             add_scatter_trace(
                 fig, df_outlier_corr, hpge_act, nai_act_corr, row, 2,
-                customdata_corr[is_outlier_corr], cols['weight'],
+                customdata_corr[is_outlier_corr], density[is_outlier_corr],
                 hpge_unc, nai_unc,
                 is_outlier=True, is_corrected=True,
                 show_colorbar=False, show_legend=False,
