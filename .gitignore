@@ -46,10 +46,7 @@ Thumbs.db
 ~$*
 
 # Project specific
-Converter/LOG/
-Converter/Temp/
-Converter/Input/
-Converter/Nová složka/
+Converter/
 
 # Data files (uncomment if you want to exclude)
 # *.xlsx
