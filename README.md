@@ -13,15 +13,28 @@ Projekt obsahuje:
 ```
 ├── app/                    # Interaktivní Dash aplikace
 │   ├── app.py              # Entry point
+│   ├── layout.py           # UI komponenty
+│   ├── processing.py       # Zpracování spekter
+│   ├── callbacks/          # Dash callbacky
+│   ├── utils/              # Pomocné moduly
 │   ├── config/             # Konfigurace detektorů (YAML)
 │   ├── data/calibration/   # Kalibrační spektra (SPE)
-│   └── README.md           # Detailní dokumentace aplikace
+│   └── README.md           # Dokumentace aplikace
 ├── data_analysis/          # HPGe vs NaI(Tl) porovnání
 │   ├── main.py             # Pipeline orchestrace
 │   ├── config.yaml         # Nastavení analýzy
-│   └── visualize.py        # Generování grafů
+│   ├── input/              # Vstupní xlsx soubory
+│   ├── output/             # Výstupní grafy a data
+│   ├── src/                # Python moduly
+│   │   ├── visualize.py    # Hlavní vizualizace
+│   │   ├── viz_*.py        # Pomocné moduly (config, data, stats, scatter, rmse)
+│   │   ├── build_input.py  # Spojení HPGe + NaI dat
+│   │   └── density_correction_utils.py  # Korekce samoabsorpce
+│   └── README.md           # Dokumentace pipeline
 ├── Spektra/                # Spektra vzorků (SPE, CNF)
-└── Converter/              # Konverze CNF → SPE
+│   ├── naitl/              # NaI(Tl) spektra
+│   └── cebr/               # CeBr₃ spektra
+└── pyproject.toml          # Závislosti a metadata
 ```
 
 ---
@@ -60,8 +73,9 @@ python main.py
 
 ## 📖 Dokumentace
 
-- **[app/README.md](app/README.md)** - Detailní dokumentace Dash aplikace (matematika, workflow, konfigurace)
-- **[data_analysis/config.yaml](data_analysis/config.yaml)** - Nastavení korekčních modelů a vizualizace
+- **[app/README.md](app/README.md)** - Dokumentace Dash aplikace (workflow, konfigurace)
+- **[data_analysis/README.md](data_analysis/README.md)** - Dokumentace porovnávací pipeline
+- **[data_analysis/config.yaml](data_analysis/config.yaml)** - Nastavení korekčních modelů
 
 ---
 
