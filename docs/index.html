@@ -119,38 +119,17 @@
                 <h3>🎯 Korekce samoabsorpce</h3>
                 <p>Hustotně závislá korekce matricového efektu</p>
             </div>
+            <div class="feature">
+                <h3>💻 Webová aplikace</h3>
+                <p>Dash/Plotly rozhraní pro interaktivní kalibraci a analýzu spekter</p>
+            </div>
+            <div class="feature">
+                <h3>✅ Validace HPGe</h3>
+                <p>Porovnání s 74 referenčními měřeními, RMSE redukce 40-67% <a href="results.html" style="white-space: nowrap;">→ výsledky</a></p>
+            </div>
         </div>
 
-        <h2>🧪 Interaktivní aplikace</h2>
-        <p>
-            Webová aplikace (Dash/Plotly) pro interaktivní zpracování spekter:
-        </p>
-        <ul>
-            <li>Načtení SPE spekter (maestro, scintivision)</li>
-            <li>Interaktivní energetická kalibrace</li>
-            <li>Automatický rebin a spektrální fit</li>
-            <li>Definice dual-ROI (Ra/Th + K)</li>
-            <li>Export výsledků do Excel</li>
-        </ul>
-        
         <img src="screenshot.PNG" alt="Screenshot aplikace" class="screenshot">
-        
-        <h2>📈 Validace metody</h2>
-        <p>
-            Scintilační metoda byla validována porovnáním s referenčními HPGe měřeními 
-            pro 74 vzorků různého složení a hustoty. Byla implementována korekce samoabsorpce 
-            závislá na hustotě vzorku:
-        </p>
-        <div class="equation">
-            A<sub>corr</sub> = a · A<sub>NaI</sub> · exp(b·Δρ + c·Δρ²)
-        </div>
-        <p>
-            kde Δρ = ρ − ρ<sub>ref</sub> je odchylka hustoty od referenční hodnoty. 
-            Aplikace korekce vedla k <strong>redukci RMSE o 40-67 %</strong> pro všechny sledované radionuklidy.
-        </p>
-
-        <a href="results.html" class="cta-button">📊 Zobrazit interaktivní porovnání</a>
-        <a href="https://github.com/mihy-suro/Scint_stavmat" class="cta-button secondary">💻 GitHub repozitář</a>
 
         <footer>
             <p><strong>Řešitelé:</strong> Miroslav Hýža, Michal Sloboda, Mahulena Kořistková</p>
